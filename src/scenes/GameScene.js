@@ -1333,6 +1333,9 @@ export default class GameScene extends Phaser.Scene {
         } else {
           desired = new Phaser.Math.Vector2(this.player.x, this.player.y);
         }
+      } else if (!this.isMobileTouch) {
+        const pointer = this.input.activePointer;
+        desired = new Phaser.Math.Vector2(pointer.worldX, pointer.worldY);
       } else {
         const aim = this.inputSystem.getAimVec();
         desired = new Phaser.Math.Vector2(
@@ -1684,7 +1687,7 @@ export default class GameScene extends Phaser.Scene {
 
     if (isSkill) {
       this.playActionSfx('enemy_hit');
-      new FloatingText(this, enemy.x, enemy.y - 10, String(finalDmg), { fontSize: 15, color: '#7ea0ff' });
+      new FloatingText(this, enemy.x, enemy.y - 10, String(finalDmg), { fontSize: 16, color: '#7ea0ff' });
     }
 
     if (enemy.hp <= 0) this.killEnemy(enemy);
@@ -2406,7 +2409,7 @@ export default class GameScene extends Phaser.Scene {
     if (this.playerInvulnSec > 0 || amount <= 0) return;
     this.playerHp -= amount;
     this.playerInvulnSec = 0.35;
-    new FloatingText(this, this.player.x, this.player.y - 18, `-${amount}`, { fontSize: 16, color: '#ff6b6b' });
+    new FloatingText(this, this.player.x, this.player.y - 18, `-${amount}`, { fontSize: 17, color: '#ff6b6b' });
     if (this.playerHp <= 0) this.gameOver();
   }
 
@@ -2682,7 +2685,7 @@ export default class GameScene extends Phaser.Scene {
     this.emitBurst(enemy.x, enemy.y, { count: 7, tint: 0xffffff, speedMin: 50, speedMax: 160, scaleStart: 0.7, lifespan: 140 });
 
     this.playActionSfx('enemy_hit');
-    new FloatingText(this, enemy.x, enemy.y - 10, String(dmg), { fontSize: 16, color: '#ffffff' });
+    new FloatingText(this, enemy.x, enemy.y - 10, String(dmg), { fontSize: 17, color: '#ffffff' });
     this.applyLifesteal(dmg);
     bullet.hitIds?.add(enemy);
     if (!bullet.pierce) bullet.destroy();
