@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <title>Circles</title>
+    <style>
+      html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #0b0f17; }
+      #app { width: 100%; height: 100%; overflow: hidden; }
+      #rotate-lock {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        background: radial-gradient(circle at 30% 20%, #13213c, #070b14 62%);
+        color: #eaf0ff;
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 24px;
+      }
+      #rotate-lock .card {
+        border: 1px solid #3b4d75;
+        background: rgba(23, 32, 51, 0.82);
+        border-radius: 16px;
+        padding: 18px 22px;
+        max-width: 320px;
+      }
+      #rotate-lock .title {
+        font-size: 22px;
+        margin-bottom: 8px;
+      }
+      #rotate-lock .desc {
+        font-size: 15px;
+        color: #aab6d6;
+      }
+      canvas {
+        display: block;
+        margin: 0 auto;
+        width: 100%;
+        height: 100%;
+        image-rendering: auto;
+      }
+
+      @media (orientation: portrait) and (max-width: 1024px) {
+        #app { display: none; }
+        #rotate-lock { display: flex; }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="rotate-lock">
+      <div class="card">
+        <div class="title">가로 모드 필요</div>
+        <div class="desc">원활한 플레이를 위해 기기를 가로로 돌려주세요.</div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
