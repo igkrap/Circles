@@ -14,6 +14,7 @@ import {
   combineEffects,
   getCompletedCodexSets
 } from '../data/relics.js';
+import { isMobileDevice } from '../utils/device.js';
 
 const XP_PER_TYPE = {
   [EnemyType.SCOUT]: 8,
@@ -178,14 +179,19 @@ export default class GameScene extends Phaser.Scene {
     this.cameras.main.startFollow(this.player, true, 0.12, 0.12);
     this.cameras.main.setBounds(0, 0, worldW, worldH);
 
-    this.inputSystem = new InputSystem(this, () => ({ x: this.player.x, y: this.player.y }));
-    this.isMobileTouch = !!this.sys?.game?.device?.input?.touch;
+    this.isMobileTouch = isMobileDevice();
+    this.inputSystem = new InputSystem(this, () => ({ x: this.player.x, y: this.player.y }), { isMobile: this.isMobileTouch });
     this.mobileUi = null;
     this.skillDragState = null;
     this.skillAimOverride = null;
-    this.aimCursorPos = new Phaser.Math.Vector2(this.player.x, this.player.y);
-    this.autoTarget = null;
-    this.aimCursorGfx = this.add.graphics().setDepth(120).setScrollFactor(0);
+    this.aimCursorPos = new Phaser.Math.Vector2(this.scale.width * 0.5, this.scale.height * 0.5);
+    this.mobileAimPadPrev = new Phaser.Math.Vector2(0, 0);
+    this.wasMobileManualAim = false;
+    this.aimCursorGfx = this.add.graphics().setDepth(1500).setScrollFactor(0);
+    if (!this.isMobileTouch) {
+      this.input.setDefaultCursor('crosshair');
+      if (this.sys?.game?.canvas) this.sys.game.canvas.style.cursor = 'crosshair';
+    }
 
     this.bullets = this.physics.add.group({ classType: Phaser.Physics.Arcade.Image, runChildUpdate: false });
     this.enemies = this.physics.add.group({ classType: Enemy, runChildUpdate: false });
@@ -210,6 +216,8 @@ export default class GameScene extends Phaser.Scene {
 
     this.events.once('shutdown', () => {
       this.input.keyboard.off('keydown', this.keyHandler);
+      this.input.setDefaultCursor('default');
+      if (this.sys?.game?.canvas) this.sys.game.canvas.style.cursor = 'default';
       this.levelUpOverlay.destroy();
       this.spawnWarnings.forEach((w) => w.gfx?.destroy());
       this.lineWarnings.forEach((w) => w.gfx?.destroy());
@@ -1312,103 +1320,52 @@ export default class GameScene extends Phaser.Scene {
 
   getAimVector() {
     if (this.skillAimOverride) return this.skillAimOverride.clone();
-    this.autoTarget = null;
-    if (!this.settings.autoAim) return this.inputSystem.getAimVec();
-
-    const pointer = this.input.activePointer;
-    const mx = pointer?.worldX ?? this.player.x;
-    const my = pointer?.worldY ?? this.player.y;
-
-    const maxPlayerDist = 900;
-    const snapRadius = 220;
-    let best = null;
-    let bestScore = Number.POSITIVE_INFINITY;
-
-    // Pass 1: enemies near mouse cursor.
-    this.enemies.children.iterate((e) => {
-      if (!e || !e.active) return;
-      const dxp = e.x - this.player.x;
-      const dyp = e.y - this.player.y;
-      const d2Player = dxp * dxp + dyp * dyp;
-      if (d2Player > maxPlayerDist * maxPlayerDist) return;
-
-      const dxm = e.x - mx;
-      const dym = e.y - my;
-      const d2Mouse = dxm * dxm + dym * dym;
-      if (d2Mouse > snapRadius * snapRadius) return;
-
-      const score = d2Mouse + d2Player * 0.05;
-      if (score < bestScore) {
-        bestScore = score;
-        best = e;
-      }
-    });
-
-    // Pass 2: nearest to player if nothing near cursor.
-    if (!best) {
-      this.enemies.children.iterate((e) => {
-        if (!e || !e.active) return;
-        const dx = e.x - this.player.x;
-        const dy = e.y - this.player.y;
-        const d2 = dx * dx + dy * dy;
-        if (d2 > maxPlayerDist * maxPlayerDist) return;
-        if (d2 < bestScore) {
-          bestScore = d2;
-          best = e;
-        }
-      });
+    if (this.isMobileTouch) {
+      const cam = this.cameras.main;
+      const cursorWorldX = cam.worldView.x + this.aimCursorPos.x;
+      const cursorWorldY = cam.worldView.y + this.aimCursorPos.y;
+      const v = new Phaser.Math.Vector2(
+        cursorWorldX - this.player.x,
+        cursorWorldY - this.player.y
+      );
+      if (v.lengthSq() > 1e-6) return v.normalize();
     }
-
-    if (!best) return this.inputSystem.getAimVec();
-    this.autoTarget = best;
-    const v = new Phaser.Math.Vector2(best.x - this.player.x, best.y - this.player.y);
-    if (v.lengthSq() < 1e-6) return this.inputSystem.getAimVec();
-    return v.normalize();
+    return this.inputSystem.getAimVec();
   }
 
   updateAimCursor(dtSec) {
     let desired;
-    if (this.settings.autoAim && this.autoTarget?.active) {
-      desired = new Phaser.Math.Vector2(this.autoTarget.x, this.autoTarget.y);
-    } else if (this.settings.autoAim) {
-      const pointer = this.input.activePointer;
-      desired = new Phaser.Math.Vector2(pointer.worldX, pointer.worldY);
-    } else {
-      const isMobileManualAim = this.isMobileTouch && this.inputSystem.getAimPadState().active;
-      if (isMobileManualAim) {
-        const st = this.inputSystem.getAimPadState();
-        const dx = st.cur.x - st.start.x;
-        const dy = st.cur.y - st.start.y;
-        const len = Math.hypot(dx, dy);
-        if (len > 1e-4) {
-          const t = Phaser.Math.Clamp(len / Math.max(1, st.radius), 0, 1);
-          const nx = dx / len;
-          const ny = dy / len;
-          const r = 160 * t;
-          desired = new Phaser.Math.Vector2(
-            this.player.x + nx * r,
-            this.player.y + ny * r
-          );
-        } else {
-          desired = new Phaser.Math.Vector2(this.player.x, this.player.y);
-        }
-      } else if (!this.isMobileTouch) {
-        const pointer = this.input.activePointer;
-        desired = new Phaser.Math.Vector2(pointer.worldX, pointer.worldY);
-      } else {
-        const aim = this.inputSystem.getAimVec();
-        desired = new Phaser.Math.Vector2(
-          this.player.x + aim.x * 140,
-          this.player.y + aim.y * 140
-        );
+    const isMobileManualAim = this.isMobileTouch && this.inputSystem.getAimPadState().active;
+    const st = this.inputSystem.getAimPadState();
+
+    if (isMobileManualAim) {
+      if (!this.wasMobileManualAim) {
+        this.mobileAimPadPrev.set(st.cur.x, st.cur.y);
       }
+
+      const deltaX = st.cur.x - this.mobileAimPadPrev.x;
+      const deltaY = st.cur.y - this.mobileAimPadPrev.y;
+      this.mobileAimPadPrev.set(st.cur.x, st.cur.y);
+
+      desired = new Phaser.Math.Vector2(
+        this.aimCursorPos.x + deltaX,
+        this.aimCursorPos.y + deltaY
+      );
+    } else if (!this.isMobileTouch) {
+      const p = this.input.activePointer;
+      desired = new Phaser.Math.Vector2(p?.x ?? this.aimCursorPos.x, p?.y ?? this.aimCursorPos.y);
+    } else {
+      desired = this.aimCursorPos.clone();
     }
 
-    if (this.settings.autoAim && this.autoTarget?.active) {
-      desired.set(this.autoTarget.x, this.autoTarget.y);
+    if (!Number.isFinite(desired.x) || !Number.isFinite(desired.y)) {
+      desired.set(this.scale.width * 0.5, this.scale.height * 0.5);
     }
-    const a = 1 - Math.exp(-dtSec * 18);
-    this.aimCursorPos.lerp(desired, a);
+    desired.x = Phaser.Math.Clamp(desired.x, 0, this.scale.width);
+    desired.y = Phaser.Math.Clamp(desired.y, 0, this.scale.height);
+
+    this.aimCursorPos.copy(desired);
+    this.wasMobileManualAim = isMobileManualAim;
   }
 
   drawAimCursor() {
@@ -1416,9 +1373,18 @@ export default class GameScene extends Phaser.Scene {
       this.aimCursorGfx.clear();
       return;
     }
-    const cam = this.cameras.main;
-    const sx = this.aimCursorPos.x - cam.worldView.x;
-    const sy = this.aimCursorPos.y - cam.worldView.y;
+    let sx = this.aimCursorPos.x;
+    let sy = this.aimCursorPos.y;
+    if (!this.isMobileTouch) {
+      const p = this.input.activePointer;
+      sx = p?.x ?? sx;
+      sy = p?.y ?? sy;
+    }
+
+    if (!Number.isFinite(sx) || !Number.isFinite(sy)) {
+      this.aimCursorGfx.clear();
+      return;
+    }
     const g = this.aimCursorGfx;
     g.clear();
     g.lineStyle(2, 0xffffff, 0.75);
@@ -1427,12 +1393,6 @@ export default class GameScene extends Phaser.Scene {
     g.lineBetween(sx + 6, sy, sx + 18, sy);
     g.lineBetween(sx, sy - 18, sx, sy - 6);
     g.lineBetween(sx, sy + 6, sx, sy + 18);
-    if (this.autoTarget?.active) {
-      g.lineStyle(2, 0x7ea0ff, 0.75);
-      const tx = this.autoTarget.x - cam.worldView.x;
-      const ty = this.autoTarget.y - cam.worldView.y;
-      g.strokeCircle(tx, ty, (this.autoTarget.body?.halfWidth ?? 14) + 10);
-    }
   }
 
   onShieldUsed() {
@@ -1504,14 +1464,8 @@ export default class GameScene extends Phaser.Scene {
       this.saveSettings();
       this.refreshPauseUi();
     });
-    const autoAimToggle = mkBtn(top + 204, '', () => {
-      this.settings.autoAim = !this.settings.autoAim;
-      this.saveSettings();
-      this.refreshPauseUi();
-    });
-
     const bgmVol = mkRow(
-      top + 264,
+      top + 216,
       '배경음 볼륨',
       () => {
         this.settings.bgmVolume = Math.max(0, this.settings.bgmVolume - 0.1);
@@ -1529,7 +1483,7 @@ export default class GameScene extends Phaser.Scene {
     );
 
     const sfxVol = mkRow(
-      top + 302,
+      top + 254,
       '효과음 볼륨',
       () => {
         this.settings.sfxVolume = Math.max(0, this.settings.sfxVolume - 0.1);
@@ -1558,7 +1512,6 @@ export default class GameScene extends Phaser.Scene {
       dim, card, title,
       bgmToggle.bg, bgmToggle.tx,
       sfxToggle.bg, sfxToggle.tx,
-      autoAimToggle.bg, autoAimToggle.tx,
       bgmVol.lbl, bgmVol.left, bgmVol.val, bgmVol.right,
       sfxVol.lbl, sfxVol.left, sfxVol.val, sfxVol.right,
       resumeBtn.bg, resumeBtn.tx,
@@ -1586,7 +1539,6 @@ export default class GameScene extends Phaser.Scene {
       title,
       bgmToggle,
       sfxToggle,
-      autoAimToggle,
       bgmVol,
       sfxVol,
       resumeBtn,
@@ -1610,7 +1562,6 @@ export default class GameScene extends Phaser.Scene {
     if (!this.pauseUi) return;
     this.pauseUi.bgmToggle.tx.setText(`배경음: ${this.settings.bgmEnabled ? '켜짐' : '꺼짐'}`);
     this.pauseUi.sfxToggle.tx.setText(`효과음: ${this.settings.sfxEnabled ? '켜짐' : '꺼짐'}`);
-    this.pauseUi.autoAimToggle.tx.setText(`자동 조준: ${this.settings.autoAim ? '켜짐' : '꺼짐'}`);
     this.pauseUi.bgmVol.val.setText(`${Math.round(this.settings.bgmVolume * 100)}%`);
     this.pauseUi.sfxVol.val.setText(`${Math.round(this.settings.sfxVolume * 100)}%`);
   }

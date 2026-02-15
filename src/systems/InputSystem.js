@@ -5,9 +5,10 @@ export default class InputSystem {
    * @param {Phaser.Scene} scene
    * @param {{x:number,y:number}} getPlayerPosFn
    */
-  constructor(scene, getPlayerPosFn) {
+  constructor(scene, getPlayerPosFn, options = {}) {
     this.scene = scene;
     this.getPlayerPos = getPlayerPosFn;
+    this.isMobileMode = !!options.isMobile;
 
     this.keys = scene.input.keyboard.addKeys({
       up: 'W',
@@ -31,11 +32,11 @@ export default class InputSystem {
     this.moveVec = new Phaser.Math.Vector2(0, 0);
     this.aimVec = new Phaser.Math.Vector2(1, 0);
     this.locked = false;
-    this.isTouchDevice = !!scene?.sys?.game?.device?.input?.touch;
     this.touchPads = null; // { left:{x,y}, right:{x,y}, radius:number, deadZone:number }
 
     // Touch controls
     scene.input.on('pointerdown', (p) => {
+      if (!this.isMobileMode) return;
       if (this.touchPads) {
         const r = this.touchPads.radius * 1.2;
         const inLeft = Phaser.Math.Distance.Between(p.x, p.y, this.touchPads.left.x, this.touchPads.left.y) <= r;
@@ -69,6 +70,7 @@ export default class InputSystem {
     });
 
     scene.input.on('pointermove', (p) => {
+      if (!this.isMobileMode) return;
       if (p.id === this.movePointerId) {
         this.moveCur.set(p.x, p.y);
       }
@@ -78,14 +80,28 @@ export default class InputSystem {
     });
 
     scene.input.on('pointerup', (p) => {
+      if (!this.isMobileMode) return;
       if (p.id === this.movePointerId) {
+        this.moveCur.set(p.x, p.y);
         this.movePointerId = null;
         this.moveVec.set(0, 0);
       }
       if (p.id === this.aimPointerId) {
+        // Capture the exact release point so consumers can apply final delta.
+        this.aimCur.set(p.x, p.y);
         this.aimPointerId = null;
       }
     });
+  }
+
+  getDesktopPointerWorldPos() {
+    const p = this.scene.input.activePointer;
+    const cam = this.scene.cameras.main;
+    if (!p || !cam) return this.getPlayerPos();
+    return {
+      x: cam.worldView.x + p.x,
+      y: cam.worldView.y + p.y
+    };
   }
 
   update() {
@@ -94,8 +110,18 @@ export default class InputSystem {
       return;
     }
 
+    if (this.isMobileMode) {
+      if (this.movePointerId !== null && !this.isPointerStillDown(this.movePointerId)) {
+        this.movePointerId = null;
+        this.moveVec.set(0, 0);
+      }
+      if (this.aimPointerId !== null && !this.isPointerStillDown(this.aimPointerId)) {
+        this.aimPointerId = null;
+      }
+    }
+
     // Movement: touch takes precedence, otherwise keyboard.
-    if (this.movePointerId !== null) {
+    if (this.isMobileMode && this.movePointerId !== null) {
       const v = this.moveCur.clone().subtract(this.moveStart);
       const len = v.length();
       const dead = this.touchPads?.deadZone ?? 6;
@@ -114,24 +140,30 @@ export default class InputSystem {
     }
 
     // Aiming:
-    // - Touch device: only right-stick touch updates aim.
-    // - Desktop: mouse updates aim when no touch aim pointer is active.
-    if (this.aimPointerId !== null) {
+    // - Mobile: only right-stick touch updates aim, otherwise keep last aim.
+    // - Desktop: mouse always updates aim.
+    if (this.isMobileMode && this.aimPointerId !== null) {
       const v = this.aimCur.clone().subtract(this.aimStart);
       const dead = this.touchPads?.deadZone ?? 6;
       if (v.length() > dead) {
         this.aimVec.copy(v.normalize());
       }
-    } else if (!this.isTouchDevice) {
-      const p = this.scene.input.activePointer;
+    } else if (!this.isMobileMode) {
       const player = this.getPlayerPos();
-      const v = new Phaser.Math.Vector2(p.worldX - player.x, p.worldY - player.y);
+      const pointerWorld = this.getDesktopPointerWorldPos();
+      const v = new Phaser.Math.Vector2(pointerWorld.x - player.x, pointerWorld.y - player.y);
       if (v.length() > 0.001) this.aimVec.copy(v.normalize());
     }
   }
 
   getMoveVec() { return this.moveVec; }
   getAimVec() { return this.aimVec; }
+  isPointerStillDown(pointerId) {
+    if (pointerId === null || pointerId === undefined) return false;
+    const pointers = this.scene?.input?.manager?.pointers ?? [];
+    const p = pointers.find((ptr) => ptr && (ptr.id === pointerId || ptr.pointerId === pointerId));
+    return !!p?.isDown;
+  }
   getMovePadState() {
     return {
       active: this.movePointerId !== null,
@@ -169,7 +201,7 @@ export default class InputSystem {
     // Python reference behavior:
     // - Desktop: hold SPACE to fire, mouse is aim-only.
     // - Mobile: fire while right-aim touch is active.
-    if (this.aimPointerId !== null) return true;
+    if (this.isMobileMode) return this.aimPointerId !== null;
     return !!this.keys.fire?.isDown;
   }
 }

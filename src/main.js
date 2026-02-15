@@ -8,8 +8,9 @@ import GameOverScene from './scenes/GameOverScene.js';
 import RankingScene from './scenes/RankingScene.js';
 import ShopScene from './scenes/ShopScene.js';
 import CodexScene from './scenes/CodexScene.js';
+import { isMobileDevice } from './utils/device.js';
 
-const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '');
+const isMobile = isMobileDevice();
 
 async function tryLockLandscape() {
   if (!isMobile) return;

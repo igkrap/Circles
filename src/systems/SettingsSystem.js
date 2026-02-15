@@ -4,8 +4,7 @@ const DEFAULTS = {
   bgmEnabled: true,
   sfxEnabled: true,
   bgmVolume: 0.5,
-  sfxVolume: 0.5,
-  autoAim: false
+  sfxVolume: 0.5
 };
 
 function clamp01(v, fallback = 0.5) {
@@ -26,8 +25,7 @@ export default class SettingsSystem {
         bgmEnabled: !!data.bgmEnabled,
         sfxEnabled: !!data.sfxEnabled,
         bgmVolume: clamp01(data.bgmVolume, DEFAULTS.bgmVolume),
-        sfxVolume: clamp01(data.sfxVolume, DEFAULTS.sfxVolume),
-        autoAim: !!data.autoAim
+        sfxVolume: clamp01(data.sfxVolume, DEFAULTS.sfxVolume)
       };
     } catch {
       return { ...DEFAULTS };
@@ -39,8 +37,7 @@ export default class SettingsSystem {
       bgmEnabled: !!settings?.bgmEnabled,
       sfxEnabled: !!settings?.sfxEnabled,
       bgmVolume: clamp01(settings?.bgmVolume, DEFAULTS.bgmVolume),
-      sfxVolume: clamp01(settings?.sfxVolume, DEFAULTS.sfxVolume),
-      autoAim: !!settings?.autoAim
+      sfxVolume: clamp01(settings?.sfxVolume, DEFAULTS.sfxVolume)
     };
     localStorage.setItem(KEY, JSON.stringify(safe));
     return safe;
