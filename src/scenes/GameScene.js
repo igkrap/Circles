@@ -186,6 +186,7 @@ export default class GameScene extends Phaser.Scene {
     this.skillAimOverride = null;
     this.aimCursorPos = new Phaser.Math.Vector2(this.scale.width * 0.5, this.scale.height * 0.5);
     this.mobileAimPadPrev = new Phaser.Math.Vector2(0, 0);
+    this.mobileAimRadius = 110;
     this.wasMobileManualAim = false;
     this.aimCursorGfx = this.add.graphics().setDepth(1500).setScrollFactor(0);
     if (!this.isMobileTouch) {
@@ -1361,6 +1362,22 @@ export default class GameScene extends Phaser.Scene {
     if (!Number.isFinite(desired.x) || !Number.isFinite(desired.y)) {
       desired.set(this.scale.width * 0.5, this.scale.height * 0.5);
     }
+
+    if (this.isMobileTouch) {
+      const cam = this.cameras.main;
+      const desiredWorld = new Phaser.Math.Vector2(
+        cam.worldView.x + desired.x,
+        cam.worldView.y + desired.y
+      );
+      const toCursor = desiredWorld.clone().subtract(new Phaser.Math.Vector2(this.player.x, this.player.y));
+      const len = toCursor.length();
+      if (len > this.mobileAimRadius && len > 1e-6) {
+        toCursor.scale(this.mobileAimRadius / len);
+        desiredWorld.set(this.player.x + toCursor.x, this.player.y + toCursor.y);
+        desired.set(desiredWorld.x - cam.worldView.x, desiredWorld.y - cam.worldView.y);
+      }
+    }
+
     desired.x = Phaser.Math.Clamp(desired.x, 0, this.scale.width);
     desired.y = Phaser.Math.Clamp(desired.y, 0, this.scale.height);
 
