@@ -434,6 +434,129 @@ export default class PreloadScene extends Phaser.Scene {
       g.strokePath();
     });
 
+    // Relic family icons
+    makeSkillIcon('relic_assault', 0x7f2f2f, (g, s) => {
+      g.beginPath();
+      g.moveTo(s * 0.2, s * 0.72);
+      g.lineTo(s * 0.8, s * 0.2);
+      g.strokePath();
+      g.beginPath();
+      g.moveTo(s * 0.63, s * 0.2);
+      g.lineTo(s * 0.8, s * 0.2);
+      g.lineTo(s * 0.8, s * 0.37);
+      g.strokePath();
+    });
+    makeSkillIcon('relic_precision', 0x6a4a22, (g, s) => {
+      g.strokeCircle(s * 0.5, s * 0.5, s * 0.24);
+      g.lineStyle(2, 0xf4f8ff, 0.92);
+      g.strokeCircle(s * 0.5, s * 0.5, s * 0.1);
+      g.beginPath();
+      g.moveTo(s * 0.5, s * 0.12); g.lineTo(s * 0.5, s * 0.3);
+      g.moveTo(s * 0.5, s * 0.7); g.lineTo(s * 0.5, s * 0.88);
+      g.moveTo(s * 0.12, s * 0.5); g.lineTo(s * 0.3, s * 0.5);
+      g.moveTo(s * 0.7, s * 0.5); g.lineTo(s * 0.88, s * 0.5);
+      g.strokePath();
+    });
+    makeSkillIcon('relic_rapid', 0x1f6f6f, (g, s) => {
+      g.beginPath();
+      g.moveTo(s * 0.2, s * 0.36); g.lineTo(s * 0.8, s * 0.36);
+      g.moveTo(s * 0.2, s * 0.5); g.lineTo(s * 0.8, s * 0.5);
+      g.moveTo(s * 0.2, s * 0.64); g.lineTo(s * 0.8, s * 0.64);
+      g.strokePath();
+      g.lineStyle(2, 0xf4f8ff, 0.92);
+      g.beginPath();
+      g.moveTo(s * 0.72, s * 0.3); g.lineTo(s * 0.8, s * 0.36); g.lineTo(s * 0.72, s * 0.42);
+      g.strokePath();
+    });
+    makeSkillIcon('relic_ballistic', 0x325f97, (g, s) => {
+      g.beginPath();
+      g.moveTo(s * 0.16, s * 0.72);
+      g.lineTo(s * 0.58, s * 0.72);
+      g.lineTo(s * 0.84, s * 0.46);
+      g.lineTo(s * 0.58, s * 0.2);
+      g.lineTo(s * 0.16, s * 0.2);
+      g.strokePath();
+    });
+    makeSkillIcon('relic_coolant', 0x23639a, (g, s) => {
+      g.beginPath();
+      g.moveTo(s * 0.5, s * 0.12); g.lineTo(s * 0.5, s * 0.88);
+      g.moveTo(s * 0.12, s * 0.5); g.lineTo(s * 0.88, s * 0.5);
+      g.moveTo(s * 0.22, s * 0.22); g.lineTo(s * 0.78, s * 0.78);
+      g.moveTo(s * 0.78, s * 0.22); g.lineTo(s * 0.22, s * 0.78);
+      g.strokePath();
+    });
+    makeSkillIcon('relic_survival', 0x304d7a, (g, s) => {
+      g.beginPath();
+      g.moveTo(s * 0.5, s * 0.14);
+      g.lineTo(s * 0.76, s * 0.24);
+      g.lineTo(s * 0.7, s * 0.62);
+      g.lineTo(s * 0.5, s * 0.82);
+      g.lineTo(s * 0.3, s * 0.62);
+      g.lineTo(s * 0.24, s * 0.24);
+      g.closePath();
+      g.strokePath();
+    });
+    makeSkillIcon('relic_regen', 0x2f7c4b, (g, s) => {
+      g.beginPath();
+      g.moveTo(s * 0.5, s * 0.2); g.lineTo(s * 0.5, s * 0.8);
+      g.moveTo(s * 0.2, s * 0.5); g.lineTo(s * 0.8, s * 0.5);
+      g.strokePath();
+      g.lineStyle(2, 0xf4f8ff, 0.85);
+      g.strokeCircle(s * 0.5, s * 0.5, s * 0.24);
+    });
+    makeSkillIcon('relic_shield', 0x3a5f9c, (g, s) => {
+      g.strokeRoundedRect(s * 0.24, s * 0.24, s * 0.52, s * 0.52, 7);
+      g.lineStyle(2, 0xf4f8ff, 0.85);
+      g.beginPath();
+      g.moveTo(s * 0.34, s * 0.54);
+      g.lineTo(s * 0.46, s * 0.66);
+      g.lineTo(s * 0.68, s * 0.38);
+      g.strokePath();
+    });
+    makeSkillIcon('relic_mobility', 0x236b7b, (g, s) => {
+      g.beginPath();
+      g.moveTo(s * 0.16, s * 0.56);
+      g.lineTo(s * 0.46, s * 0.56);
+      g.lineTo(s * 0.34, s * 0.72);
+      g.moveTo(s * 0.38, s * 0.44);
+      g.lineTo(s * 0.82, s * 0.44);
+      g.lineTo(s * 0.7, s * 0.6);
+      g.strokePath();
+    });
+    makeSkillIcon('relic_scavenger', 0x8c6a24, (g, s) => {
+      g.strokeCircle(s * 0.44, s * 0.44, s * 0.22);
+      g.lineStyle(2, 0xf4f8ff, 0.92);
+      g.beginPath();
+      g.moveTo(s * 0.6, s * 0.6);
+      g.lineTo(s * 0.8, s * 0.8);
+      g.strokePath();
+    });
+    makeSkillIcon('relic_execution', 0x2f5f8e, (g, s) => {
+      g.beginPath();
+      g.moveTo(s * 0.22, s * 0.72);
+      g.lineTo(s * 0.22, s * 0.3);
+      g.lineTo(s * 0.78, s * 0.3);
+      g.strokePath();
+      g.lineStyle(2, 0xf4f8ff, 0.92);
+      g.beginPath();
+      g.moveTo(s * 0.58, s * 0.18);
+      g.lineTo(s * 0.78, s * 0.3);
+      g.lineTo(s * 0.58, s * 0.42);
+      g.strokePath();
+    });
+    makeSkillIcon('relic_overclock', 0x8a3e2b, (g, s) => {
+      g.beginPath();
+      g.moveTo(s * 0.5, s * 0.12);
+      g.lineTo(s * 0.64, s * 0.36);
+      g.lineTo(s * 0.54, s * 0.36);
+      g.lineTo(s * 0.68, s * 0.7);
+      g.lineTo(s * 0.42, s * 0.44);
+      g.lineTo(s * 0.52, s * 0.44);
+      g.lineTo(s * 0.38, s * 0.12);
+      g.closePath();
+      g.strokePath();
+    });
+
     this.scene.start('Lobby');
   }
 }

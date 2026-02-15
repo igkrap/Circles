@@ -181,7 +181,7 @@ export default class StageDirector {
 
     let rr = r;
     let eliteP = 0;
-    if (stage >= 2) eliteP = Math.min(0.1, 0.02 + 0.01 * (stage - 2));
+    if (stage >= 2) eliteP = Math.min(0.18, 0.04 + 0.012 * (stage - 2));
     if (rr < eliteP) return EnemyType.ELITE;
     rr -= eliteP;
 
@@ -198,16 +198,16 @@ export default class StageDirector {
       return EnemyType.TANK;
     }
     if (stage <= 4) {
-      if (r < 0.38) return EnemyType.SCOUT;
-      if (r < 0.78) return EnemyType.NORMAL;
-      if (r < 0.93) return EnemyType.TANK;
+      if (r < 0.34) return EnemyType.SCOUT;
+      if (r < 0.70) return EnemyType.NORMAL;
+      if (r < 0.88) return EnemyType.TANK;
       return EnemyType.ELITE;
     }
 
     // Later stages: more elite/tank.
-    if (r < 0.30) return EnemyType.SCOUT;
-    if (r < 0.62) return EnemyType.NORMAL;
-    if (r < 0.85) return EnemyType.TANK;
+    if (r < 0.24) return EnemyType.SCOUT;
+    if (r < 0.52) return EnemyType.NORMAL;
+    if (r < 0.76) return EnemyType.TANK;
     return EnemyType.ELITE;
   }
 
@@ -220,8 +220,9 @@ export default class StageDirector {
     const n = Phaser.Math.Between(spec.burstMin, spec.burstMax);
     const pattern = Phaser.Utils.Array.GetRandom(spec.patterns);
     const bounds = scene.physics.world.bounds;
-    const px = scene.player.x;
-    const py = scene.player.y;
+    const anchor = scene.getSpawnAnchor?.() ?? { x: scene.player.x, y: scene.player.y };
+    const px = anchor.x;
+    const py = anchor.y;
 
     const spawnCorner = () => {
       const corners = [

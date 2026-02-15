@@ -257,9 +257,76 @@ export default class LobbyScene extends Phaser.Scene {
     }).setOrigin(0.5);
     startBtn.on('pointerover', () => startBtn.setFillStyle(0x35507a, 0.98));
     startBtn.on('pointerout', () => startBtn.setFillStyle(0x2a3552, 0.98));
-    startBtn.on('pointerdown', () => {
+
+    const modeRoot = this.add.container(0, 0).setDepth(2500).setVisible(false);
+    const modeDim = this.add.rectangle(0, 0, w, h, 0x000000, 0.56).setOrigin(0).setInteractive();
+    const modeCardW = Math.min(420, w - 50);
+    const modeCardH = 328;
+    const modeCard = this.add.rectangle(w * 0.5, h * 0.53, modeCardW, modeCardH, 0x172033, 0.97);
+    modeCard.setStrokeStyle(2, 0x3b4d75, 0.95);
+    const modeTitle = this.add.text(w * 0.5, modeCard.y - modeCardH * 0.5 + 28, '모드 선택', {
+      fontFamily: FONT_KR,
+      fontSize: '24px',
+      color: '#eaf0ff'
+    }).setOrigin(0.5);
+    modeRoot.add([modeDim, modeCard, modeTitle]);
+
+    const mkModeBtn = (y, label, desc, onClick, enabled = true) => {
+      const bw = modeCardW - 56;
+      const bh = 52;
+      const bg = this.add.rectangle(w * 0.5, y, bw, bh, enabled ? 0x2a3552 : 0x243248, 0.98)
+        .setInteractive(enabled ? { useHandCursor: true } : undefined);
+      bg.setStrokeStyle(1, enabled ? 0x7ea0ff : 0x466084, 0.9);
+      const tx = this.add.text(w * 0.5, y - 10, label, {
+        fontFamily: FONT_KR,
+        fontSize: '18px',
+        color: enabled ? '#eaf0ff' : '#9ab0d3'
+      }).setOrigin(0.5);
+      const sx = this.add.text(w * 0.5, y + 12, desc, {
+        fontFamily: FONT_KR,
+        fontSize: '13px',
+        color: '#8fa4cd'
+      }).setOrigin(0.5);
+      if (enabled) {
+        bg.on('pointerover', () => bg.setFillStyle(0x35507a, 0.98));
+        bg.on('pointerout', () => bg.setFillStyle(0x2a3552, 0.98));
+        bg.on('pointerdown', onClick);
+      }
+      modeRoot.add([bg, tx, sx]);
+      return { bg, tx, sx };
+    };
+
+    const closeY = modeCard.y + modeCardH * 0.5 - 28;
+    const topRowY = modeCard.y - modeCardH * 0.5 + 94;
+    const bottomRowY = closeY - 64;
+    const rowGap = (bottomRowY - topRowY) / 2;
+    const y1 = topRowY;
+    const y2 = y1 + rowGap;
+    const y3 = y2 + rowGap;
+    mkModeBtn(y1, '생존 모드', '기존 규칙으로 끝까지 생존', () => {
       bgm.stop();
-      this.scene.start('Game');
+      this.scene.start('Game', { mode: 'survival' });
+    });
+    mkModeBtn(y2, '디펜스 모드', '중앙 코어를 적에게서 방어', () => {
+      bgm.stop();
+      this.scene.start('Game', { mode: 'defense' });
+    });
+    mkModeBtn(y3, 'PVP 모드 🔒', '미구현', () => {}, false);
+
+    const closeBtn = this.add.rectangle(w * 0.5, closeY, 150, 34, 0x2a3552, 0.95)
+      .setInteractive({ useHandCursor: true });
+    closeBtn.setStrokeStyle(1, 0x7ea0ff, 0.8);
+    const closeTx = this.add.text(closeBtn.x, closeBtn.y, '닫기', {
+      fontFamily: FONT_KR,
+      fontSize: '16px',
+      color: '#eaf0ff'
+    }).setOrigin(0.5);
+    closeBtn.on('pointerdown', () => modeRoot.setVisible(false));
+    modeDim.on('pointerdown', () => modeRoot.setVisible(false));
+    modeRoot.add([closeBtn, closeTx]);
+
+    startBtn.on('pointerdown', () => {
+      modeRoot.setVisible(true);
     });
 
     const shopBtn = this.add.rectangle(w / 2, h * 0.74, 300, 42, 0x2a3552, 0.95).setInteractive({ useHandCursor: true });

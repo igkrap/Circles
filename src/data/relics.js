@@ -110,3 +110,32 @@ export function effectToText(effects) {
   if (effects.goldGainPct) lines.push(`골드 획득 ${pct(effects.goldGainPct)}`);
   return lines.join(' / ');
 }
+
+const RELIC_FAMILY_ICON_KEY = {
+  assault: 'ico_relic_assault',
+  precision: 'ico_relic_precision',
+  rapid: 'ico_relic_rapid',
+  ballistic: 'ico_relic_ballistic',
+  coolant: 'ico_relic_coolant',
+  survival: 'ico_relic_survival',
+  regen: 'ico_relic_regen',
+  shield: 'ico_relic_shield',
+  mobility: 'ico_relic_mobility',
+  scavenger: 'ico_relic_scavenger',
+  execution: 'ico_relic_execution',
+  overclock: 'ico_relic_overclock'
+};
+
+function relicFamilyFromId(id) {
+  const s = String(id ?? '');
+  if (!s) return '';
+  if (s.startsWith('codex_')) return s.slice('codex_'.length);
+  const parts = s.split('_');
+  if (parts.length >= 2) return parts[1];
+  return s;
+}
+
+export function getRelicIconKeyById(id) {
+  const family = relicFamilyFromId(id);
+  return RELIC_FAMILY_ICON_KEY[family] ?? 'tex_gold';
+}

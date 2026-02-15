@@ -1,7 +1,7 @@
-import Phaser from 'phaser';
+﻿import Phaser from 'phaser';
 import SaveSystem from '../systems/SaveSystem.js';
 import SettingsSystem from '../systems/SettingsSystem.js';
-import { CODEX_SETS, RELIC_BY_ID, effectToText } from '../data/relics.js';
+import { CODEX_SETS, RELIC_BY_ID, effectToText, getRelicIconKeyById } from '../data/relics.js';
 
 const FONT_KR = 'Pretendard, "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, -apple-system, "Segoe UI", Roboto, Arial';
 
@@ -184,8 +184,9 @@ export default class CodexScene extends Phaser.Scene {
 
       const row = this.add.rectangle(left, y, rowW, rowH, 0x121b2d, 0.95).setOrigin(0, 0);
       row.setStrokeStyle(1, done ? 0x8bc6ff : 0x314261, 0.95);
+      const setIcon = this.add.image(left + 18, y + 18, getRelicIconKeyById(set.id)).setDisplaySize(20, 20);
 
-      const title = this.add.text(left + 12, y + 8, `${done ? '[완성]' : `[${progress}/3]`} ${set.name}`, {
+      const title = this.add.text(left + 34, y + 8, `${done ? '[완성]' : `[${progress}/3]`} ${set.name}`, {
         fontFamily: FONT_KR,
         fontSize: '15px',
         color: done ? '#8bc6ff' : '#eaf0ff'
@@ -201,14 +202,19 @@ export default class CodexScene extends Phaser.Scene {
         if (!owned.has(id)) return '???';
         return RELIC_BY_ID[id]?.name ?? '???';
       });
+      const relicIcons = set.relicIds.map((id, iconIdx) => {
+        const icon = this.add.image(left + 22 + iconIdx * 26, y + 47, getRelicIconKeyById(id)).setDisplaySize(16, 16);
+        icon.setAlpha(owned.has(id) ? 1 : 0.2);
+        return icon;
+      });
       const need = this.add.text(left + 12, y + 38, `구성 유물: ${relicNames.join(' / ')}`, {
         fontFamily: FONT_KR,
         fontSize: '13px',
         color: '#8fa4cd'
       });
 
-      this.listRoot.add([row, title, bonus, need]);
-      this.rowEntries.push({ y, h: rowH, parts: [row, title, bonus, need] });
+      this.listRoot.add([row, setIcon, title, bonus, ...relicIcons, need]);
+      this.rowEntries.push({ y, h: rowH, parts: [row, setIcon, title, bonus, ...relicIcons, need] });
     });
 
     const contentHeight = CODEX_SETS.length * rowH + Math.max(0, CODEX_SETS.length - 1) * gapY;

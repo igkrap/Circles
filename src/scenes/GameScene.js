@@ -34,6 +34,9 @@ const SCORE_PER_TYPE = {
   [EnemyType.BOSS]: 140
 };
 
+const DEFENSE_CORE_REGEN_PER_SEC = 3;
+const DEFENSE_CORE_REGEN_DELAY_SEC = 2.5;
+
 class GoldPickup extends Phaser.Physics.Arcade.Image {
   constructor(scene, x, y, amount) {
     super(scene, x, y, 'tex_gold');
@@ -95,7 +98,13 @@ export default class GameScene extends Phaser.Scene {
     super('Game');
   }
 
+  init(data) {
+    const mode = String(data?.mode ?? 'survival').toLowerCase();
+    this.runMode = mode === 'defense' ? 'defense' : 'survival';
+  }
+
   create() {
+    if (!this.runMode) this.runMode = 'survival';
     this.runGold = 0;
     this.totalGold = SaveSystem.getTotalGold();
     this.levelupActive = false;
@@ -126,17 +135,28 @@ export default class GameScene extends Phaser.Scene {
     this.playerShadow.setDisplaySize(42, 18);
     this.playerAura = this.add.image(this.player.x, this.player.y, 'tex_aura_ring').setDepth(3).setAlpha(0.55);
     this.playerAura.setBlendMode(Phaser.BlendModes.ADD);
+    this.defenseCore = null;
+    this.defenseCoreBody = null;
+    this.defenseCoreHpMax = 0;
+    this.defenseCoreHp = 0;
+    this.defenseCorePulse = 0;
+    this.defenseCoreRegenPerSec = DEFENSE_CORE_REGEN_PER_SEC;
+    this.defenseCoreRegenDelaySec = 0;
+    this.defenseCoreHpText = null;
+    if (this.runMode === 'defense') {
+      this.createDefenseCore(worldW * 0.5, worldH * 0.5);
+    }
 
-    this.playerMaxHpBase = 100;
+    this.playerMaxHpBase = 50;
     this.playerMaxHp = this.playerMaxHpBase;
     this.playerHp = this.playerMaxHp;
     this.playerShield = 0;
 
     this.playerSpeedBase = 270;
     this.playerSpeed = this.playerSpeedBase;
-    this.baseDamageBase = 7;
+    this.baseDamageBase = 3;
     this.baseDamage = this.baseDamageBase;
-    this.fireRateBase = 155;
+    this.fireRateBase = 185;
     this.fireRateMs = this.fireRateBase;
 
     this.xpGainMul = 1.0;
@@ -206,6 +226,9 @@ export default class GameScene extends Phaser.Scene {
     this.physics.add.overlap(this.bullets, this.enemies, (b, e) => this.onBulletHit(b, e));
     this.physics.add.overlap(this.player, this.enemies, (p, e) => this.onPlayerTouchEnemy(p, e));
     this.physics.add.overlap(this.player, this.goldPickups, (p, g) => this.onGoldPickup(p, g));
+    if (this.defenseCoreBody) {
+      this.physics.add.overlap(this.defenseCoreBody, this.enemies, (_c, e) => this.onDefenseCoreTouchEnemy(e));
+    }
 
     this.createHud();
     if (this.isMobileTouch) this.createMobileControls();
@@ -231,7 +254,38 @@ export default class GameScene extends Phaser.Scene {
       this.bgNebula?.destroy();
       this.playerShadow?.destroy();
       this.playerAura?.destroy();
+      this.defenseCore?.root?.destroy(true);
+      this.defenseCore = null;
+      this.defenseCoreBody?.destroy();
+      this.defenseCoreBody = null;
     });
+  }
+
+  createDefenseCore(x, y) {
+    const root = this.add.container(x, y).setDepth(6);
+    const glow = this.add.circle(0, 0, 74, 0x7ea0ff, 0.08).setBlendMode(Phaser.BlendModes.ADD);
+    const aura = this.add.circle(0, 0, 56).setStrokeStyle(3, 0x8bc6ff, 0.55).setBlendMode(Phaser.BlendModes.ADD);
+    const poly = this.add.polygon(0, 0, [0, -34, 30, -17, 30, 17, 0, 34, -30, 17, -30, -17], 0x193152, 0.85)
+      .setStrokeStyle(2, 0xb7d8ff, 0.95);
+    const core = this.add.circle(0, 0, 12, 0xbde3ff, 0.85).setBlendMode(Phaser.BlendModes.ADD);
+    root.add([glow, aura, poly, core]);
+    this.tweens.add({ targets: root, rotation: Math.PI * 2, duration: 10000, repeat: -1 });
+    this.tweens.add({ targets: glow, alpha: { from: 0.06, to: 0.16 }, duration: 1200, yoyo: true, repeat: -1 });
+
+    this.defenseCoreBody = this.physics.add.image(x, y, 'tex_particle_soft')
+      .setVisible(false)
+      .setImmovable(true);
+    this.defenseCoreBody.body.setAllowGravity(false);
+    this.defenseCoreBody.setCircle(34);
+
+    this.defenseCore = { root, glow, aura, poly, core, x, y };
+    this.defenseCoreHpMax = 420;
+    this.defenseCoreHp = this.defenseCoreHpMax;
+  }
+
+  getSpawnAnchor() {
+    if (this.runMode === 'defense' && this.defenseCore) return { x: this.defenseCore.x, y: this.defenseCore.y };
+    return { x: this.player.x, y: this.player.y };
   }
 
   createWorldBackdrop(worldW, worldH) {
@@ -666,6 +720,7 @@ export default class GameScene extends Phaser.Scene {
     this.ui.minimap = this.add.graphics().setScrollFactor(0);
     this.ui.stage = this.add.text(this.scale.width / 2, 14, '', { fontFamily: font, fontSize: '18px', color: '#eaf0ff' }).setOrigin(0.5, 0).setScrollFactor(0);
     this.ui.stageSub = this.add.text(this.scale.width / 2, 36, '', { fontFamily: font, fontSize: '14px', color: '#aab6d6' }).setOrigin(0.5, 0).setScrollFactor(0);
+    this.ui.modeObjective = this.add.text(this.scale.width / 2, 56, '', { fontFamily: font, fontSize: '14px', color: '#8bc6ff' }).setOrigin(0.5, 0).setScrollFactor(0);
     this.ui.time = this.add.text(this.scale.width - 18, 14, '', { fontFamily: font, fontSize: '18px', color: '#eaf0ff' }).setOrigin(1, 0).setScrollFactor(0);
 
     this.ui.xpBarBg = this.add.rectangle(0, 0, this.scale.width, 10, 0x23304a).setOrigin(0, 1).setScrollFactor(0);
@@ -744,6 +799,7 @@ export default class GameScene extends Phaser.Scene {
       this.ui.minimapBg,
       this.ui.stage,
       this.ui.stageSub,
+      this.ui.modeObjective,
       this.ui.time,
       this.ui.xpBarBg,
       this.ui.xpBarFill,
@@ -789,6 +845,7 @@ export default class GameScene extends Phaser.Scene {
     this.ui.minimapLayout = { x: mmX, y: mmY, w: mmW, h: mmH, pad: 4 };
     this.ui.stage.setPosition(w / 2, 14);
     this.ui.stageSub.setPosition(w / 2, 36);
+    this.ui.modeObjective.setPosition(w / 2, 56);
     this.ui.time.setPosition(w - 18, 14);
     this.ui.xpBarBg.setPosition(0, h);
     this.ui.xpBarBg.width = w;
@@ -1063,7 +1120,7 @@ export default class GameScene extends Phaser.Scene {
     const n = Math.max(0, Math.floor(levels));
     if (n <= 0) return;
     this.baseDamageBase += n;
-    this.playerMaxHpBase += 30 * n;
+    this.playerMaxHpBase += 10 * n;
     this.abilitySystem.applyStatEffects('ATK', this);
     this.abilitySystem.applyStatEffects('MAX_HP', this);
   }
@@ -1128,6 +1185,7 @@ export default class GameScene extends Phaser.Scene {
     this.updateSpawnWarnings(dtSec);
     this.updateLineWarnings(dtSec);
     this.updateBossLasers(dtSec);
+    this.updateDefenseCore(dtSec);
     this.playerInvulnSec = Math.max(0, this.playerInvulnSec - dtSec);
 
     const totalHpRegenPerSec = this.hpRegenPerSec + this.relicHpRegenFlat;
@@ -1184,8 +1242,11 @@ export default class GameScene extends Phaser.Scene {
       if ((e._blizzardSlowUntil ?? 0) > this.time.now) {
         speedMul = Math.min(speedMul, e._blizzardSlowMul ?? 1);
       }
-      const dx = this.player.x - e.x;
-      const dy = this.player.y - e.y;
+      const target = this.runMode === 'defense' && this.defenseCore
+        ? { x: this.defenseCore.x, y: this.defenseCore.y }
+        : { x: this.player.x, y: this.player.y };
+      const dx = target.x - e.x;
+      const dy = target.y - e.y;
       const len = Math.hypot(dx, dy) || 1;
       e.body.setVelocity((dx / len) * e.speed * speedMul * this.enemyPace, (dy / len) * e.speed * speedMul * this.enemyPace);
       if (e.shadow) e.shadow.setPosition(e.x, e.y + (e.body?.radius ?? 14) + 7);
@@ -1228,6 +1289,15 @@ export default class GameScene extends Phaser.Scene {
     this.ui.synergy.setText(sy.length > 0 ? sy.join(', ') : '');
     this.ui.stage.setText(`스테이지 ${stage}`);
     this.ui.stageSub.setText(`${this.stageDirector.stageKills}/${spec.killGoal}`);
+    if (this.runMode === 'defense' && this.defenseCoreHpMax > 0) {
+      this.ui.modeObjective.setText(`디펜스 코어 ${Math.max(0, Math.floor(this.defenseCoreHp))}/${this.defenseCoreHpMax}`);
+      this.ui.modeObjective.setColor(this.defenseCoreHp / this.defenseCoreHpMax < 0.35 ? '#ffb3b3' : '#8bc6ff');
+      this.ui.modeObjective.setVisible(true);
+    } else {
+      this.ui.modeObjective.setText('생존 모드');
+      this.ui.modeObjective.setColor('#8bc6ff');
+      this.ui.modeObjective.setVisible(true);
+    }
     this.ui.time.setText(`${tSec}s`);
     this.drawMinimap();
 
@@ -1519,7 +1589,7 @@ export default class GameScene extends Phaser.Scene {
     const restartY = lobbyY - 50;
     const resumeY = restartY - 50;
     const resumeBtn = mkBtn(resumeY, '계속하기', () => this.setPaused(false));
-    const restartBtn = mkBtn(restartY, '다시 시작', () => this.scene.restart());
+    const restartBtn = mkBtn(restartY, '다시 시작', () => this.scene.restart({ mode: this.runMode }));
     const lobbyBtn = mkBtn(lobbyY, '로비로', () => {
       this.bgm?.stop();
       this.scene.start('Lobby');
@@ -2560,7 +2630,7 @@ export default class GameScene extends Phaser.Scene {
     b.setRotation(Math.atan2(aim.y, aim.x));
     b.setTint(0xeaf4ff);
 
-    const speed = 720 * this.combatPace;
+    const speed = 660 * this.combatPace;
     b.body.setVelocity(aim.x * speed, aim.y * speed);
     this.emitBurst(sx, sy, { count: 5, tint: 0xcfe9ff, speedMin: 40, speedMax: 120, scaleStart: 0.7, lifespan: 120 });
 
@@ -2814,6 +2884,48 @@ export default class GameScene extends Phaser.Scene {
     this.player.body.velocity.y += (dy / len) * 200;
   }
 
+  onDefenseCoreTouchEnemy(enemy) {
+    if (this.runMode !== 'defense' || !this.defenseCore || !enemy?.active) return;
+    const now = this.time.now;
+    if ((enemy._coreHitLockUntil ?? 0) > now) return;
+    enemy._coreHitLockUntil = now + 360;
+
+    const dmg = enemy.type === EnemyType.BOSS ? 22
+      : enemy.type === EnemyType.MINIBOSS ? 14
+        : enemy.type === EnemyType.ELITE ? 8
+          : enemy.type === EnemyType.TANK ? 6
+            : 4;
+    this.defenseCoreHp = Math.max(0, this.defenseCoreHp - dmg);
+    this.defenseCorePulse = 0.22;
+    this.defenseCoreRegenDelaySec = DEFENSE_CORE_REGEN_DELAY_SEC;
+    new FloatingText(this, this.defenseCore.x, this.defenseCore.y - 34, `-${dmg}`, { fontSize: 15, color: '#ff8f8f' });
+
+    const dx = enemy.x - this.defenseCore.x;
+    const dy = enemy.y - this.defenseCore.y;
+    const len = Math.hypot(dx, dy) || 1;
+    enemy.body.velocity.x += (dx / len) * 140;
+    enemy.body.velocity.y += (dy / len) * 140;
+
+    if (this.defenseCoreHp <= 0) {
+      this.defenseCoreHp = 0;
+      this.gameOver('core_destroyed');
+    }
+  }
+
+  updateDefenseCore(dtSec) {
+    if (this.runMode !== 'defense' || !this.defenseCore) return;
+    this.defenseCorePulse = Math.max(0, this.defenseCorePulse - dtSec);
+    this.defenseCoreRegenDelaySec = Math.max(0, this.defenseCoreRegenDelaySec - dtSec);
+    if (this.defenseCoreRegenDelaySec <= 0 && this.defenseCoreHp > 0 && this.defenseCoreHp < this.defenseCoreHpMax) {
+      this.defenseCoreHp = Math.min(this.defenseCoreHpMax, this.defenseCoreHp + this.defenseCoreRegenPerSec * dtSec);
+    }
+    const hpRatio = this.defenseCoreHpMax > 0 ? this.defenseCoreHp / this.defenseCoreHpMax : 0;
+    const pulse = 1 + Math.sin(this.elapsedMs * 0.007) * 0.04 + this.defenseCorePulse * 0.24;
+    this.defenseCore.root.setScale(pulse);
+    this.defenseCore.aura.setAlpha(0.35 + (1 - hpRatio) * 0.15 + this.defenseCorePulse * 0.35);
+    this.defenseCore.glow.setAlpha(0.08 + (1 - hpRatio) * 0.08 + this.defenseCorePulse * 0.3);
+  }
+
   onGoldPickup(player, gold) {
     if (!gold.active) return;
 
@@ -2826,7 +2938,7 @@ export default class GameScene extends Phaser.Scene {
     gold.destroy();
   }
 
-  gameOver() {
+  gameOver(reason = 'player_down') {
     const timeSec = this.elapsedMs / 1000;
     const timeBonus = Math.floor(timeSec * 7);
     const totalScore = this.baseScore + timeBonus;
@@ -2836,7 +2948,8 @@ export default class GameScene extends Phaser.Scene {
       timeSec,
       kills: this.kills,
       stage: this.stageDirector.stage,
-      level: this.progression.level
+      level: this.progression.level,
+      mode: this.runMode
     });
     this.bgm?.stop();
     this.scene.start('GameOver', {
@@ -2845,7 +2958,9 @@ export default class GameScene extends Phaser.Scene {
       level: this.progression.level,
       kills: this.kills,
       timeSec,
-      totalScore
+      totalScore,
+      mode: this.runMode,
+      reason
     });
   }
 }

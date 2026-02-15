@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import SaveSystem from '../systems/SaveSystem.js';
 import SettingsSystem from '../systems/SettingsSystem.js';
-import { RELICS, effectToText } from '../data/relics.js';
+import { RELICS, effectToText, getRelicIconKeyById } from '../data/relics.js';
 
 const FONT_KR = 'Pretendard, "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, -apple-system, "Segoe UI", Roboto, Arial';
 const MAX_EQUIP = 3;
@@ -204,7 +204,11 @@ export default class ShopScene extends Phaser.Scene {
       card.setStrokeStyle(1, equipped ? 0x8bc6ff : 0x314261, 0.95);
       this.listRoot.add(card);
 
-      const name = this.add.text(x + 10, y + 8, r.name, {
+      const iconKey = getRelicIconKeyById(r.id);
+      const icon = this.add.image(x + 24, y + 20, iconKey).setDisplaySize(22, 22);
+      this.listRoot.add(icon);
+
+      const name = this.add.text(x + 40, y + 8, r.name, {
         fontFamily: FONT_KR,
         fontSize: '16px',
         color: owned ? '#eaf0ff' : '#aab6d6'
@@ -254,7 +258,7 @@ export default class ShopScene extends Phaser.Scene {
       this.relicEntries.push({
         y,
         h: cardH,
-        parts: [card, name, desc, price, btn, tx],
+        parts: [card, icon, name, desc, price, btn, tx],
         button: btn
       });
     });
