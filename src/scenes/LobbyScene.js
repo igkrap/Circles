@@ -137,6 +137,81 @@ export default class LobbyScene extends Phaser.Scene {
       color: '#ffd700'
     }).setOrigin(0, 0);
 
+    const drawBookGlyph = (x, y, color = 0xeaf0ff) => {
+      const g = this.add.graphics();
+      g.lineStyle(1.9, color, 0.96);
+      // left/right pages
+      g.strokeRoundedRect(x - 10, y - 8, 8, 16, 2.2);
+      g.strokeRoundedRect(x + 2, y - 8, 8, 16, 2.2);
+      // center seam
+      g.lineBetween(x, y - 8, x, y + 8);
+      // page fold hints
+      g.lineStyle(1.2, color, 0.86);
+      g.lineBetween(x - 6.7, y - 3.8, x - 3.3, y - 3.8);
+      g.lineBetween(x + 3.3, y - 3.8, x + 6.7, y - 3.8);
+      // tiny top clasp (similar to HUD icon feel)
+      g.lineStyle(1.5, color, 0.9);
+      g.strokeRoundedRect(x - 1.8, y - 10.5, 3.6, 2.4, 0.8);
+      return g;
+    };
+
+    const drawTrophyGlyph = (x, y, color = 0xeaf0ff) => {
+      const g = this.add.graphics();
+      g.lineStyle(1.9, color, 0.96);
+      // cup
+      g.strokeRoundedRect(x - 6.4, y - 8.2, 12.8, 8.7, 2.3);
+      // handles
+      g.beginPath();
+      g.moveTo(x - 6.4, y - 6.1);
+      g.lineTo(x - 9.8, y - 4.4);
+      g.lineTo(x - 9.8, y - 1.8);
+      g.lineTo(x - 6.4, y - 0.2);
+      g.strokePath();
+      g.beginPath();
+      g.moveTo(x + 6.4, y - 6.1);
+      g.lineTo(x + 9.8, y - 4.4);
+      g.lineTo(x + 9.8, y - 1.8);
+      g.lineTo(x + 6.4, y - 0.2);
+      g.strokePath();
+      // stem + base
+      g.lineBetween(x, y + 0.6, x, y + 6.3);
+      g.strokeRoundedRect(x - 5.4, y + 6.3, 10.8, 2.8, 1);
+      return g;
+    };
+
+    const mkTopIcon = (x, kind, onClick) => {
+      const box = this.add.rectangle(x, 24, 38, 30, 0x1f2b43, 0.95).setInteractive({ useHandCursor: true });
+      box.setStrokeStyle(1, 0x7ea0ff, 0.8);
+      let glyph = null;
+      if (kind === 'book') glyph = drawBookGlyph(x, 24);
+      else if (kind === 'trophy') glyph = drawTrophyGlyph(x, 24);
+
+      box.on('pointerover', () => {
+        box.setFillStyle(0x35507a, 0.95);
+        glyph?.setAlpha(1);
+      });
+      box.on('pointerout', () => {
+        box.setFillStyle(0x1f2b43, 0.95);
+        glyph?.setAlpha(0.95);
+      });
+      box.on('pointerdown', onClick);
+      return [box, glyph];
+    };
+
+    const topRightPad = 24;
+    const iconGap = 8;
+    const iconW = 38;
+    const rankX = w - topRightPad - iconW * 0.5;
+    const codexX = rankX - iconW - iconGap;
+    const [codexIcon, codexGlyph] = mkTopIcon(codexX, 'book', () => {
+      bgm.stop();
+      this.scene.start('Codex');
+    });
+    const [rankIcon, rankGlyph] = mkTopIcon(rankX, 'trophy', () => {
+      bgm.stop();
+      this.scene.start('Ranking');
+    });
+
     const titleGlow = this.add.text(w / 2, h * 0.33, 'CIRCLES', {
       fontFamily: 'Trebuchet MS, Verdana, system-ui, sans-serif',
       fontSize: w < 760 ? '52px' : '62px',
@@ -173,9 +248,9 @@ export default class LobbyScene extends Phaser.Scene {
     }).setOrigin(0.5);
     this.tweens.add({ targets: hint, alpha: 0.35, duration: 650, yoyo: true, repeat: -1 });
 
-    const startBtn = this.add.rectangle(w / 2, h * 0.66, 300, 46, 0x2a3552, 0.98).setInteractive({ useHandCursor: true });
+    const startBtn = this.add.rectangle(w / 2, h * 0.64, 300, 44, 0x2a3552, 0.98).setInteractive({ useHandCursor: true });
     startBtn.setStrokeStyle(1, 0x7ea0ff, 0.8);
-    const startText = this.add.text(w / 2, h * 0.66, '\uC2DC\uC791', {
+    const startText = this.add.text(w / 2, h * 0.64, '\uC2DC\uC791', {
       fontFamily: FONT_KR,
       fontSize: '20px',
       color: '#eaf0ff'
@@ -187,18 +262,18 @@ export default class LobbyScene extends Phaser.Scene {
       this.scene.start('Game');
     });
 
-    const rankBtn = this.add.rectangle(w / 2, h * 0.75, 300, 42, 0x2a3552, 0.95).setInteractive({ useHandCursor: true });
-    rankBtn.setStrokeStyle(1, 0x7ea0ff, 0.7);
-    const rankText = this.add.text(w / 2, h * 0.75, '\uB7AD\uD0B9', {
+    const shopBtn = this.add.rectangle(w / 2, h * 0.74, 300, 42, 0x2a3552, 0.95).setInteractive({ useHandCursor: true });
+    shopBtn.setStrokeStyle(1, 0x7ea0ff, 0.7);
+    const shopText = this.add.text(w / 2, h * 0.74, '\uC0C1\uC810', {
       fontFamily: FONT_KR,
       fontSize: '18px',
       color: '#eaf0ff'
     }).setOrigin(0.5);
-    rankBtn.on('pointerover', () => rankBtn.setFillStyle(0x33486d, 0.95));
-    rankBtn.on('pointerout', () => rankBtn.setFillStyle(0x2a3552, 0.95));
-    rankBtn.on('pointerdown', () => {
+    shopBtn.on('pointerover', () => shopBtn.setFillStyle(0x33486d, 0.95));
+    shopBtn.on('pointerout', () => shopBtn.setFillStyle(0x2a3552, 0.95));
+    shopBtn.on('pointerdown', () => {
       bgm.stop();
-      this.scene.start('Ranking');
+      this.scene.start('Shop');
     });
 
     this.events.on('wake', () => {
@@ -211,8 +286,12 @@ export default class LobbyScene extends Phaser.Scene {
     void panel;
     void panelShine;
     void coin;
+    void codexIcon;
+    void codexGlyph;
+    void rankIcon;
+    void rankGlyph;
     void bgObjs;
     void startText;
-    void rankText;
+    void shopText;
   }
 }

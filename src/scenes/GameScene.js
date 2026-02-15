@@ -9,6 +9,11 @@ import LevelUpOverlay from '../systems/LevelUpOverlay.js';
 import SettingsSystem from '../systems/SettingsSystem.js';
 import { ABILITY_KEYS, ABILITY_META, MAX_UNIQUE_TRAITS_PER_RUN } from '../data/abilities.js';
 import { AUDIO_ACTION_PROFILE, AUDIO_DEFAULT_PROFILE } from '../data/audioProfile.js';
+import {
+  RELIC_BY_ID,
+  combineEffects,
+  getCompletedCodexSets
+} from '../data/relics.js';
 
 const XP_PER_TYPE = {
   [EnemyType.SCOUT]: 8,
@@ -136,6 +141,17 @@ export default class GameScene extends Phaser.Scene {
     this.xpGainMul = 1.0;
     this.goldGainMul = 1.0;
     this.critChance = 0.0;
+    this.relicDamageMul = 1.0;
+    this.relicMoveSpeedMul = 1.0;
+    this.relicFireIntervalMul = 1.0;
+    this.relicSkillCooldownMul = 1.0;
+    this.relicDamageTakenMul = 1.0;
+    this.relicXpGainMul = 1.0;
+    this.relicGoldGainMul = 1.0;
+    this.relicCritChanceFlat = 0.0;
+    this.relicCritDamageMul = 1.0;
+    this.relicLifestealFlat = 0.0;
+    this.relicHpRegenFlat = 0.0;
     this.hpRegenPerSec = 0.0;
     this.hpRegenAcc = 0.0;
     this.shieldRegenDelaySec = 0.0;
@@ -143,6 +159,7 @@ export default class GameScene extends Phaser.Scene {
 
     this.progression = new ProgressionSystem();
     this.abilitySystem = new AbilitySystem();
+    this.applyRelicAndCodexEffects();
     this.combatPace = 0.78;
     this.enemyPace = 0.86;
     this.tweens.timeScale = 0.82;
@@ -1042,6 +1059,34 @@ export default class GameScene extends Phaser.Scene {
     this.abilitySystem.applyStatEffects('MAX_HP', this);
   }
 
+  applyRelicAndCodexEffects() {
+    const state = SaveSystem.getRelicState();
+    const equippedIds = Array.isArray(state.equipped) ? state.equipped : [];
+    const equippedRelics = equippedIds
+      .map((id) => RELIC_BY_ID[id])
+      .filter((r) => !!r);
+
+    const ownedRelicIds = Object.keys(state.owned ?? {});
+    const activeCodex = getCompletedCodexSets(ownedRelicIds);
+
+    const effects = combineEffects([
+      ...equippedRelics.map((r) => r.effects),
+      ...activeCodex.map((set) => set.effects)
+    ]);
+
+    this.relicDamageMul = Math.max(0.1, 1 + (effects.damageMulPct ?? 0));
+    this.relicMoveSpeedMul = Math.max(0.1, 1 + (effects.moveSpeedPct ?? 0));
+    this.relicFireIntervalMul = Math.max(0.2, 1 + (effects.fireIntervalPct ?? 0));
+    this.relicSkillCooldownMul = Math.max(0.2, 1 + (effects.skillCooldownPct ?? 0));
+    this.relicDamageTakenMul = Math.max(0.1, 1 + (effects.damageTakenPct ?? 0));
+    this.relicXpGainMul = Math.max(0.1, 1 + (effects.xpGainPct ?? 0));
+    this.relicGoldGainMul = Math.max(0.1, 1 + (effects.goldGainPct ?? 0));
+    this.relicCritChanceFlat = effects.critChanceFlat ?? 0;
+    this.relicCritDamageMul = Math.max(0.1, 1 + (effects.critDamageMulPct ?? 0));
+    this.relicLifestealFlat = Math.max(0, effects.lifeStealFlat ?? 0);
+    this.relicHpRegenFlat = effects.hpRegenFlat ?? 0;
+  }
+
   update(time, delta) {
     const dt = delta;
 
@@ -1076,12 +1121,24 @@ export default class GameScene extends Phaser.Scene {
     this.updateBossLasers(dtSec);
     this.playerInvulnSec = Math.max(0, this.playerInvulnSec - dtSec);
 
-    if (this.hpRegenPerSec > 0 && this.playerHp < this.playerMaxHp) {
-      this.hpRegenAcc += (dt / 1000) * this.hpRegenPerSec;
-      const heal = Math.floor(this.hpRegenAcc);
-      if (heal > 0) {
-        this.hpRegenAcc -= heal;
-        this.playerHp = Math.min(this.playerMaxHp, this.playerHp + heal);
+    const totalHpRegenPerSec = this.hpRegenPerSec + this.relicHpRegenFlat;
+    if (totalHpRegenPerSec > 0) {
+      if (this.playerHp < this.playerMaxHp) {
+        this.hpRegenAcc += (dt / 1000) * totalHpRegenPerSec;
+        const heal = Math.floor(this.hpRegenAcc);
+        if (heal > 0) {
+          this.hpRegenAcc -= heal;
+          this.playerHp = Math.min(this.playerMaxHp, this.playerHp + heal);
+        }
+      } else {
+        this.hpRegenAcc = 0;
+      }
+    } else if (totalHpRegenPerSec < 0) {
+      this.hpRegenAcc += (dt / 1000) * (-totalHpRegenPerSec);
+      const drain = Math.floor(this.hpRegenAcc);
+      if (drain > 0) {
+        this.hpRegenAcc -= drain;
+        this.playerHp = Math.max(1, this.playerHp - drain);
       }
     } else {
       this.hpRegenAcc = 0;
@@ -1089,7 +1146,8 @@ export default class GameScene extends Phaser.Scene {
 
     this.inputSystem.update();
     const mv = this.inputSystem.getMoveVec();
-    this.player.body.setVelocity(mv.x * this.playerSpeed * this.combatPace, mv.y * this.playerSpeed * this.combatPace);
+    const moveSpeed = this.playerSpeed * this.relicMoveSpeedMul;
+    this.player.body.setVelocity(mv.x * moveSpeed * this.combatPace, mv.y * moveSpeed * this.combatPace);
     if (this.playerShadow) this.playerShadow.setPosition(this.player.x, this.player.y + 20);
     if (this.playerAura) {
       this.playerAura.setPosition(this.player.x, this.player.y);
@@ -1100,7 +1158,8 @@ export default class GameScene extends Phaser.Scene {
     this.updateAimCursor(dtSec);
 
     this.fireAcc += dt;
-    if (this.inputSystem.isFiring() && this.fireAcc >= this.fireRateMs) {
+    const fireInterval = this.fireRateMs * this.relicFireIntervalMul;
+    if (this.inputSystem.isFiring() && this.fireAcc >= fireInterval) {
       this.fireAcc = 0;
       this.fireBullet();
       this.playActionSfx('fire');
@@ -1601,7 +1660,7 @@ export default class GameScene extends Phaser.Scene {
 
   getSkillCooldownDuration(key) {
     const r = this.abilitySystem.rank(key);
-    const cdMul = this.abilitySystem.activeCooldownMul() * 0.92;
+    const cdMul = this.abilitySystem.activeCooldownMul() * 0.92 * this.relicSkillCooldownMul;
     if (key === 'SHOCKWAVE') return Math.max(0.9, (2.6 - 0.25 * r) * cdMul);
     if (key === 'LASER') return Math.max(0.7, (1.8 - 0.14 * r) * cdMul);
     if (key === 'GRENADE') return Math.max(1.6, (4.0 - 0.3 * r) * cdMul);
@@ -1680,7 +1739,7 @@ export default class GameScene extends Phaser.Scene {
 
   dealDamageToEnemy(enemy, dmg, isSkill = false) {
     if (!enemy?.active) return;
-    const finalDmg = Math.max(1, Math.floor(dmg));
+    const finalDmg = Math.max(1, Math.floor(dmg * this.relicDamageMul));
     enemy.hp -= finalDmg;
     this.flashActor(enemy, 0x9ed0ff, 50);
     this.applyLifesteal(finalDmg);
@@ -1706,7 +1765,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   applyLifesteal(dmg) {
-    const ratio = this.abilitySystem.lifeStealRatio();
+    const ratio = this.abilitySystem.lifeStealRatio() + this.relicLifestealFlat;
     if (ratio <= 0) return;
     const heal = Math.max(0, Math.floor(dmg * ratio));
     if (heal <= 0) return;
@@ -2407,9 +2466,10 @@ export default class GameScene extends Phaser.Scene {
 
   playerTakeDamage(amount) {
     if (this.playerInvulnSec > 0 || amount <= 0) return;
-    this.playerHp -= amount;
+    const applied = Math.max(1, Math.floor(amount * this.relicDamageTakenMul));
+    this.playerHp -= applied;
     this.playerInvulnSec = 0.35;
-    new FloatingText(this, this.player.x, this.player.y - 18, `-${amount}`, { fontSize: 17, color: '#ff6b6b' });
+    new FloatingText(this, this.player.x, this.player.y - 18, `-${applied}`, { fontSize: 17, color: '#ff6b6b' });
     if (this.playerHp <= 0) this.gameOver();
   }
 
@@ -2674,9 +2734,10 @@ export default class GameScene extends Phaser.Scene {
     if (!bullet.active || !enemy.active) return;
     if (bullet.hitIds?.has(enemy)) return;
 
-    let dmg = bullet.damage ?? 10;
-    if (this.critChance > 0 && Math.random() < this.critChance) {
-      dmg = Math.floor(dmg * 1.6);
+    let dmg = Math.max(1, Math.floor((bullet.damage ?? 10) * this.relicDamageMul));
+    const critChanceTotal = this.critChance + this.relicCritChanceFlat;
+    if (critChanceTotal > 0 && Math.random() < critChanceTotal) {
+      dmg = Math.floor(dmg * 1.6 * this.relicCritDamageMul);
       new FloatingText(this, enemy.x, enemy.y - 26, '치명타', { fontSize: 12, color: '#ffd700' });
     }
 
@@ -2697,7 +2758,7 @@ export default class GameScene extends Phaser.Scene {
 
   getXpForEnemy(type) {
     const base = XP_PER_TYPE[type] ?? 8;
-    return Math.max(1, Math.floor(base * this.xpGainMul));
+    return Math.max(1, Math.floor(base * this.xpGainMul * this.relicXpGainMul));
   }
 
   killEnemy(enemy) {
@@ -2788,7 +2849,7 @@ export default class GameScene extends Phaser.Scene {
   onGoldPickup(player, gold) {
     if (!gold.active) return;
 
-    const amount = Math.max(1, Math.floor(gold.amount * this.goldGainMul));
+    const amount = Math.max(1, Math.floor(gold.amount * this.goldGainMul * this.relicGoldGainMul));
     this.runGold += amount;
     SaveSystem.addGold(amount);
 
