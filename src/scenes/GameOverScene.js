@@ -49,7 +49,7 @@ export default class GameOverScene extends Phaser.Scene {
 
     const modeLabel = this.mode === 'pvp'
       ? 'PVP 모드'
-      : (this.mode === 'defense' ? '디펜스 모드' : '스테이지 모드');
+      : (this.mode === 'coop' ? '협동 모드' : (this.mode === 'defense' ? '디펜스 모드' : '스테이지 모드'));
     const modeChip = this.add.rectangle(cardX, cardY - cardH * 0.5 + 44, 146, 30, 0x2a395d, 0.96);
     modeChip.setStrokeStyle(1, 0x7ea0ff, 0.75);
     const modeTx = this.add.text(cardX, modeChip.y, modeLabel, {
@@ -166,7 +166,8 @@ export default class GameOverScene extends Phaser.Scene {
         mode: this.mode,
         token: this.pvp?.token,
         serverBaseUrl: this.pvp?.serverBaseUrl,
-        user: this.pvp?.user
+        user: this.pvp?.user,
+        partyKey: this.pvp?.partyKey
       });
     }, 0x35538b, 0x4668ad);
     const lobbyBtn = mkBtn(cardX - Math.min(128, cardW * 0.22), rowY, Math.min(214, cardW * 0.36), compact ? 34 : 36, '로비', () => {
@@ -175,7 +176,8 @@ export default class GameOverScene extends Phaser.Scene {
     });
     const rankingBtn = mkBtn(cardX + Math.min(128, cardW * 0.22), rowY, Math.min(214, cardW * 0.36), compact ? 34 : 36, '랭킹', () => {
       bgm.stop();
-      this.scene.start('Ranking');
+      const rankingMode = this.mode === 'defense' ? 'survival' : this.mode;
+      this.scene.start('Ranking', { mode: rankingMode });
     });
 
     const layoutNodes = [...metricNodes, timeLine, scoreBox, scoreLabel, scoreValue, actionLabel, retryBtn.bg, retryBtn.tx, lobbyBtn.bg, lobbyBtn.tx, rankingBtn.bg, rankingBtn.tx];

@@ -1,12 +1,14 @@
 ﻿import Phaser from 'phaser';
 import { Client as ColyseusClient } from '@colyseus/sdk';
 import SaveSystem from '../systems/SaveSystem.js';
+import AuthSystem from '../systems/AuthSystem.js';
 import StageDirector, { EnemyType } from '../systems/StageDirector.js';
 import InputSystem from '../systems/InputSystem.js';
 import { FloatingText } from '../systems/Fx.js';
 import ProgressionSystem from '../systems/ProgressionSystem.js';
 import AbilitySystem from '../systems/AbilitySystem.js';
 import LevelUpOverlay from '../systems/LevelUpOverlay.js';
+import LeaderboardSystem from '../systems/LeaderboardSystem.js';
 import SettingsSystem from '../systems/SettingsSystem.js';
 import { ABILITY_KEYS, ABILITY_META, MAX_UNIQUE_TRAITS_PER_RUN } from '../data/abilities.js';
 import { AUDIO_ACTION_PROFILE, AUDIO_DEFAULT_PROFILE } from '../data/audioProfile.js';
@@ -112,11 +114,22 @@ export default class GameScene extends Phaser.Scene {
 
   init(data) {
     const mode = String(data?.mode ?? 'survival').toLowerCase();
-    this.isPvpMode = mode === 'pvp';
+    this.isCoopMode = mode === 'coop';
+    this.isPvpMode = mode === 'pvp' || this.isCoopMode;
     this.runMode = mode === 'defense' ? 'defense' : 'survival';
+    this.displayMode = this.isCoopMode ? 'coop' : this.runMode;
+    this.partyKey = String(data?.partyKey || '');
     this.pvpToken = String(data?.token || '');
     this.pvpServerBaseUrl = String(data?.serverBaseUrl || getPvpServerBaseUrl());
     this.pvpUser = data?.user || null;
+    if (!this.pvpToken) {
+      const session = AuthSystem.loadSession();
+      if (session?.token) {
+        this.pvpToken = String(session.token);
+        this.pvpServerBaseUrl = String(session.serverBaseUrl || this.pvpServerBaseUrl);
+        this.pvpUser = session.user || this.pvpUser;
+      }
+    }
   }
 
   create() {
@@ -287,7 +300,7 @@ export default class GameScene extends Phaser.Scene {
     if (this.isPvpMode) {
       this.connectPvp().catch((err) => {
         const msg = String(err?.message || err || '').slice(0, 90);
-        this.pvpStatusText?.setText(`PVP 연결 실패: ${msg}`);
+        this.pvpStatusText?.setText(`${this.isCoopMode ? '협동' : 'PVP'} 연결 실패: ${msg}`);
       });
     }
 
@@ -379,14 +392,14 @@ export default class GameScene extends Phaser.Scene {
     const body = this.physics.add.image(x, y, 'tex_player');
     body.setDepth(4);
     body.setCircle(15);
-    body.setTint(0xff8fb4);
+    body.setTint(this.isCoopMode ? 0x8fb4ff : 0xff8fb4);
     body.setCollideWorldBounds(true);
     body.body.setAllowGravity(false);
-    const visual = this.add.image(x, y, 'tex_player').setDepth(4).setTint(0xff8fb4);
+    const visual = this.add.image(x, y, 'tex_player').setDepth(4).setTint(this.isCoopMode ? 0x8fb4ff : 0xff8fb4);
 
     const shadow = this.add.image(x, y + 20, 'tex_shadow').setDepth(2).setAlpha(0.45);
     shadow.setDisplaySize(42, 18);
-    const label = this.add.text(x, y + 30, '상대', {
+    const label = this.add.text(x, y + 30, this.isCoopMode ? '팀원' : '상대', {
       fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
       fontSize: '13px',
       color: '#aab6d6'
@@ -420,7 +433,7 @@ export default class GameScene extends Phaser.Scene {
     visual.setVisible(false);
     label.setVisible(false);
     hpLabel.setVisible(false);
-    this.pvpStatusText = this.add.text(this.scale.width * 0.5, 82, 'PVP 매칭 중...', {
+    this.pvpStatusText = this.add.text(this.scale.width * 0.5, 82, this.isCoopMode ? '협동 매칭 중...' : 'PVP 매칭 중...', {
       fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
       fontSize: '14px',
       color: '#8fa4cd'
@@ -434,12 +447,15 @@ export default class GameScene extends Phaser.Scene {
     const wsBase = toWsBaseUrl(this.pvpServerBaseUrl || getPvpServerBaseUrl());
     this.pvpClient = new ColyseusClient(wsBase);
     this.pvpClient.auth.token = this.pvpToken;
-    this.pvpRoom = await this.pvpClient.joinOrCreate('battle_survival', {});
+    const joinOptions = this.isCoopMode && this.partyKey
+      ? { partyKey: this.partyKey }
+      : {};
+    this.pvpRoom = await this.pvpClient.joinOrCreate(this.isCoopMode ? 'battle_coop' : 'battle_survival', joinOptions);
     this.pvpSelfSid = this.pvpRoom.sessionId;
-    this.pvpStatusText?.setText('PVP 대기 중...');
+    this.pvpStatusText?.setText(this.isCoopMode ? '협동 대기 중...' : 'PVP 대기 중...');
 
     this.pvpRoom.onMessage('match.waiting', () => {
-      this.pvpStatusText?.setText('PVP 상대 매칭 대기 중...');
+      this.pvpStatusText?.setText(this.isCoopMode ? '협동 파트너 매칭 대기 중...' : 'PVP 상대 매칭 대기 중...');
     });
     this.pvpRoom.onMessage('match.start', (msg) => {
       const startsInMs = Math.max(1000, Math.floor(Number(msg?.startsInMs || 5000)));
@@ -472,7 +488,7 @@ export default class GameScene extends Phaser.Scene {
       this.pvpProfile = profile || null;
       const wins = Number(profile?.wins || 0);
       const losses = Number(profile?.losses || 0);
-      this.pvpStatusText?.setText(`PVP 전적 ${wins}승 ${losses}패`);
+      this.pvpStatusText?.setText(this.isCoopMode ? '협동 준비 완료' : `PVP 전적 ${wins}승 ${losses}패`);
     });
     this.pvpRoom.onMessage('pvp.damage', (msg) => {
       const toSid = String(msg?.toSid || '');
@@ -512,6 +528,13 @@ export default class GameScene extends Phaser.Scene {
       this.pvpMatchEnded = true;
       const winnerSid = String(msg?.winnerSid || '');
       const win = winnerSid === this.pvpSelfSid;
+      if (this.isCoopMode) {
+        this.pvpStatusText?.setText('협동 종료');
+        this.time.delayedCall(700, () => {
+          this.gameOver(String(msg?.reason || 'all_down'));
+        });
+        return;
+      }
       if (winnerSid === this.pvpSelfSid) {
         new FloatingText(this, this.player.x, this.player.y - 80, '승리!', { fontSize: 28, color: '#8ef0a7' });
         this.pvpStatusText?.setText('매치 종료: 승리');
@@ -778,10 +801,10 @@ export default class GameScene extends Phaser.Scene {
       }
     });
     this.pvpRoom.onLeave(() => {
-      this.pvpStatusText?.setText('PVP 연결 종료');
+      this.pvpStatusText?.setText(this.isCoopMode ? '협동 연결 종료' : 'PVP 연결 종료');
     });
     this.pvpRoom.onError((_code, message) => {
-      this.pvpStatusText?.setText(`PVP 오류: ${String(message || '').slice(0, 80)}`);
+      this.pvpStatusText?.setText(`${this.isCoopMode ? '협동' : 'PVP'} 오류: ${String(message || '').slice(0, 80)}`);
     });
   }
 
@@ -806,14 +829,14 @@ export default class GameScene extends Phaser.Scene {
     }
 
     let left = Math.max(1, Math.ceil(this.pvpCountdownDurationMs / 1000));
-    this.pvpStatusText?.setText(`전투 시작까지 ${left}`);
+    this.pvpStatusText?.setText(`${this.isCoopMode ? '협동 시작까지' : '전투 시작까지'} ${left}`);
     this.time.addEvent({
       delay: 1000,
       repeat: Math.max(0, left - 1),
       callback: () => {
         left -= 1;
         if (left > 0) {
-          this.pvpStatusText?.setText(`전투 시작까지 ${left}`);
+          this.pvpStatusText?.setText(`${this.isCoopMode ? '협동 시작까지' : '전투 시작까지'} ${left}`);
         } else {
           this.pvpStatusText?.setText('');
         }
@@ -882,7 +905,7 @@ export default class GameScene extends Phaser.Scene {
       this.pvpOpponent.y += dy * lerpT;
     }
     this.pvpOpponent.body.setPosition(this.pvpOpponent.x, this.pvpOpponent.y);
-    this.pvpOpponent.visual.setPosition(this.pvpOpponent.x, this.pvpOpponent.y).setAlpha(1).clearTint().setTint(0xff8fb4);
+    this.pvpOpponent.visual.setPosition(this.pvpOpponent.x, this.pvpOpponent.y).setAlpha(1).clearTint().setTint(this.isCoopMode ? 0x8fb4ff : 0xff8fb4);
     if (this.pvpOpponent.body.body) {
       this.pvpOpponent.body.body.enable = true;
       this.pvpOpponent.body.body.checkCollision.none = false;
@@ -890,7 +913,7 @@ export default class GameScene extends Phaser.Scene {
       this.pvpOpponent.body.body.setVelocity(0, 0);
     }
     this.pvpOpponent.shadow.setPosition(this.pvpOpponent.x, this.pvpOpponent.y + 20);
-    this.pvpOpponent.label.setPosition(this.pvpOpponent.x, this.pvpOpponent.y + 30).setText(this.pvpOpponent.name || '상대').setAlpha(1);
+    this.pvpOpponent.label.setPosition(this.pvpOpponent.x, this.pvpOpponent.y + 30).setText(this.pvpOpponent.name || (this.isCoopMode ? '팀원' : '상대')).setAlpha(1);
     this.pvpOpponent.hpLabel.setPosition(this.pvpOpponent.x, this.pvpOpponent.y - 30).setText(`HP ${Math.max(0, Math.floor(this.pvpOpponent.hp))} Lv.${Math.max(1, Math.floor(this.pvpOpponent.level))}`).setAlpha(1);
   }
 
@@ -914,6 +937,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   onBulletHitPvpOpponent(bullet) {
+    if (this.isCoopMode) return;
     if (!this.isPvpMode || !this.pvpRoom) return;
     if (!this.pvpRoundStarted) return;
     if (!bullet?.active) return;
@@ -949,6 +973,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   canHitPvpOpponent() {
+    if (this.isCoopMode) return false;
     return !!(this.isPvpMode && this.pvpRoom && this.pvpOpponentSid && this.pvpRoundStarted && this.pvpOpponentRevealed);
   }
 
@@ -2238,7 +2263,7 @@ export default class GameScene extends Phaser.Scene {
     if (flags.MAGE) sy.push('마법사(액티브 쿨타임 -40%)');
     this.ui.synergy.setText(sy.length > 0 ? sy.join(', ') : '');
     if (this.isPvpMode) {
-      this.ui.stage.setText('PVP');
+      this.ui.stage.setText(this.isCoopMode ? 'CO-OP' : 'PVP');
       this.ui.stageSub.setText('');
     } else {
       this.ui.stage.setText(`스테이지 ${stage}`);
@@ -2253,9 +2278,9 @@ export default class GameScene extends Phaser.Scene {
       this.ui.modeObjective.setColor(this.defenseCoreHp / this.defenseCoreHpMax < 0.35 ? '#ffb3b3' : '#8bc6ff');
       this.ui.modeObjective.setVisible(true);
     } else {
-      this.ui.modeObjective.setText(this.isPvpMode ? '' : '스테이지 모드');
+      this.ui.modeObjective.setText(this.isPvpMode ? (this.isCoopMode ? '협동 모드' : '') : '스테이지 모드');
       this.ui.modeObjective.setColor('#8bc6ff');
-      this.ui.modeObjective.setVisible(!this.isPvpMode && !boss);
+      this.ui.modeObjective.setVisible((!this.isPvpMode || this.isCoopMode) && !boss);
     }
     this.ui.time.setText(`${tSec}s`);
     if (this.isPvpMode) {
@@ -2577,7 +2602,14 @@ export default class GameScene extends Phaser.Scene {
     const restartY = lobbyY - 50;
     const resumeY = restartY - 50;
     const resumeBtn = mkBtn(resumeY, '계속하기', () => this.setPaused(false));
-    const restartBtn = mkBtn(restartY, '다시 시작', () => this.scene.restart({ mode: this.runMode }));
+    const restartMode = this.isCoopMode ? 'coop' : this.runMode;
+    const restartBtn = mkBtn(restartY, '다시 시작', () => this.scene.restart({
+      mode: restartMode,
+      token: this.pvpToken,
+      serverBaseUrl: this.pvpServerBaseUrl,
+      user: this.pvpUser,
+      partyKey: this.partyKey
+    }));
     const lobbyBtn = mkBtn(lobbyY, '로비로', () => {
       this.bgm?.stop();
       this.scene.start('Lobby');
@@ -4116,7 +4148,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   gameOver(reason = 'player_down') {
-    if (this.isPvpMode) {
+    if (this.isPvpMode && !this.isCoopMode) {
       this.bgm?.stop();
       this.scene.start('PvpGameOver', {
         result: 'lose',
@@ -4125,7 +4157,8 @@ export default class GameScene extends Phaser.Scene {
         pvp: {
           token: this.pvpToken,
           serverBaseUrl: this.pvpServerBaseUrl,
-          user: this.pvpUser
+          user: this.pvpUser,
+          partyKey: this.partyKey
         }
       });
       return;
@@ -4133,15 +4166,30 @@ export default class GameScene extends Phaser.Scene {
     const timeSec = this.elapsedMs / 1000;
     const timeBonus = Math.floor(timeSec * 7);
     const totalScore = this.baseScore + timeBonus;
+    const displayName = String(this.pvpUser?.name || this.pvpProfile?.name || '플레이어');
+    const modeForRecord = this.displayMode || this.runMode;
     SaveSystem.saveRecord({
-      name: '플레이어',
+      name: displayName,
       totalScore,
       timeSec,
       kills: this.kills,
       stage: this.stageDirector.stage,
       level: this.progression.level,
-      mode: this.runMode
+      mode: modeForRecord
     });
+    if (this.pvpToken && (modeForRecord === 'survival' || modeForRecord === 'coop')) {
+      const session = {
+        token: this.pvpToken,
+        serverBaseUrl: this.pvpServerBaseUrl
+      };
+      void LeaderboardSystem.submitRun(session, {
+        mode: modeForRecord,
+        stage: this.stageDirector.stage,
+        score: totalScore,
+        timeSec,
+        kills: this.kills
+      }).catch(() => {});
+    }
     this.bgm?.stop();
     this.scene.start('GameOver', {
       stage: this.stageDirector.stage,
@@ -4150,11 +4198,12 @@ export default class GameScene extends Phaser.Scene {
       kills: this.kills,
       timeSec,
       totalScore,
-      mode: this.isPvpMode ? 'pvp' : this.runMode,
-      pvp: this.isPvpMode ? {
+      mode: this.isPvpMode ? (this.isCoopMode ? 'coop' : 'pvp') : this.runMode,
+      pvp: this.pvpToken ? {
         token: this.pvpToken,
         serverBaseUrl: this.pvpServerBaseUrl,
-        user: this.pvpUser
+        user: this.pvpUser,
+        partyKey: this.partyKey
       } : null,
       reason
     });

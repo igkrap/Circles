@@ -84,7 +84,8 @@ export default class PvpGameOverScene extends Phaser.Scene {
         mode: 'pvp',
         token: this.pvp?.token,
         serverBaseUrl: this.pvp?.serverBaseUrl,
-        user: this.pvp?.user
+        user: this.pvp?.user,
+        partyKey: this.pvp?.partyKey
       });
     }, 0x35538b, 0x4668ad);
 
@@ -93,4 +94,3 @@ export default class PvpGameOverScene extends Phaser.Scene {
     });
   }
 }
-

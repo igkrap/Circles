@@ -28,6 +28,7 @@ const PVP_DB_PATH = process.env.PVP_DB_PATH || path.join(process.cwd(), 'server'
 const APP_DB_PATH = process.env.APP_DB_PATH
   || process.env.PROGRESS_DB_PATH
   || path.join(process.cwd(), 'server', 'app.sqlite');
+const RUN_LEADERBOARD_MODES = new Set(['survival', 'coop']);
 
 const WORLD_W = 4800;
 const WORLD_H = 3000;
@@ -176,6 +177,38 @@ CREATE TABLE IF NOT EXISTS user_progress (
   records TEXT NOT NULL DEFAULT '[]',
   updated_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS run_leaderboard (
+  mode TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  best_stage INTEGER NOT NULL DEFAULT 1,
+  best_score INTEGER NOT NULL DEFAULT 0,
+  best_time_sec REAL NOT NULL DEFAULT 0,
+  best_kills INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (mode, user_id)
+);
+CREATE TABLE IF NOT EXISTS user_profile (
+  user_id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  tag TEXT NOT NULL UNIQUE,
+  updated_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS friend_links (
+  user_id TEXT NOT NULL,
+  friend_user_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, friend_user_id)
+);
+CREATE TABLE IF NOT EXISTS friend_invites (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  from_user_id TEXT NOT NULL,
+  to_user_id TEXT NOT NULL,
+  party_key TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
 `);
 migrateLegacyProgressDbIfNeeded();
 
@@ -222,11 +255,219 @@ const stGetProgress = appDb.prepare(`
   FROM user_progress
   WHERE user_id = ?
 `);
+const stGetRunLeaderboardEntry = appDb.prepare(`
+  SELECT mode, user_id, name, best_stage, best_score, best_time_sec, best_kills, updated_at
+  FROM run_leaderboard
+  WHERE mode = ? AND user_id = ?
+`);
+const stUpsertRunLeaderboardEntry = appDb.prepare(`
+  INSERT INTO run_leaderboard (
+    mode, user_id, name, best_stage, best_score, best_time_sec, best_kills, updated_at
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  ON CONFLICT(mode, user_id) DO UPDATE SET
+    name=excluded.name,
+    best_stage=excluded.best_stage,
+    best_score=excluded.best_score,
+    best_time_sec=excluded.best_time_sec,
+    best_kills=excluded.best_kills,
+    updated_at=excluded.updated_at
+`);
+const stGetUserProfile = appDb.prepare(`
+  SELECT user_id, name, tag, updated_at
+  FROM user_profile
+  WHERE user_id = ?
+`);
+const stGetUserProfileByTag = appDb.prepare(`
+  SELECT user_id, name, tag, updated_at
+  FROM user_profile
+  WHERE tag = ?
+`);
+const stInsertUserProfile = appDb.prepare(`
+  INSERT INTO user_profile (user_id, name, tag, updated_at)
+  VALUES (?, ?, ?, ?)
+`);
+const stUpdateUserProfileName = appDb.prepare(`
+  UPDATE user_profile
+  SET name = ?, updated_at = ?
+  WHERE user_id = ?
+`);
+const stInsertFriendLink = appDb.prepare(`
+  INSERT OR IGNORE INTO friend_links (user_id, friend_user_id, created_at)
+  VALUES (?, ?, ?)
+`);
+const stGetFriendLink = appDb.prepare(`
+  SELECT user_id, friend_user_id, created_at
+  FROM friend_links
+  WHERE user_id = ? AND friend_user_id = ?
+`);
+const stListFriends = appDb.prepare(`
+  SELECT f.friend_user_id AS user_id, p.name, p.tag, f.created_at
+  FROM friend_links f
+  JOIN user_profile p ON p.user_id = f.friend_user_id
+  WHERE f.user_id = ?
+  ORDER BY p.name COLLATE NOCASE ASC, p.tag ASC
+`);
+const stInsertFriendInvite = appDb.prepare(`
+  INSERT INTO friend_invites (from_user_id, to_user_id, party_key, status, created_at, updated_at)
+  VALUES (?, ?, ?, 'pending', ?, ?)
+`);
+const stGetIncomingInvites = appDb.prepare(`
+  SELECT i.id, i.from_user_id, i.to_user_id, i.party_key, i.status, i.created_at, i.updated_at,
+         p.name AS from_name, p.tag AS from_tag
+  FROM friend_invites i
+  JOIN user_profile p ON p.user_id = i.from_user_id
+  WHERE i.to_user_id = ? AND i.status = 'pending'
+  ORDER BY i.created_at DESC
+`);
+const stGetOutgoingInvites = appDb.prepare(`
+  SELECT i.id, i.from_user_id, i.to_user_id, i.party_key, i.status, i.created_at, i.updated_at,
+         p.name AS to_name, p.tag AS to_tag
+  FROM friend_invites i
+  JOIN user_profile p ON p.user_id = i.to_user_id
+  WHERE i.from_user_id = ? AND i.status = 'pending'
+  ORDER BY i.created_at DESC
+`);
+const stFindPendingInviteByPair = appDb.prepare(`
+  SELECT id, from_user_id, to_user_id, party_key, status, created_at, updated_at
+  FROM friend_invites
+  WHERE from_user_id = ? AND to_user_id = ? AND status = 'pending'
+  ORDER BY created_at DESC
+  LIMIT 1
+`);
+const stGetInviteById = appDb.prepare(`
+  SELECT id, from_user_id, to_user_id, party_key, status, created_at, updated_at
+  FROM friend_invites
+  WHERE id = ?
+`);
+const stUpdateInviteStatus = appDb.prepare(`
+  UPDATE friend_invites
+  SET status = ?, updated_at = ?
+  WHERE id = ?
+`);
+
+function normalizeRunMode(mode) {
+  const v = String(mode || '').trim().toLowerCase();
+  if (RUN_LEADERBOARD_MODES.has(v)) return v;
+  return '';
+}
+
+function sanitizeRunPayload(payload) {
+  return {
+    stage: Math.max(1, Math.floor(Number(payload?.stage || 1))),
+    score: Math.max(0, Math.floor(Number(payload?.score || 0))),
+    timeSec: Math.max(0, Number(payload?.timeSec || 0)),
+    kills: Math.max(0, Math.floor(Number(payload?.kills || 0)))
+  };
+}
+
+function shouldReplaceRunEntry(prev, next) {
+  if (!prev) return true;
+  if (next.stage !== prev.best_stage) return next.stage > prev.best_stage;
+  if (next.score !== prev.best_score) return next.score > prev.best_score;
+  if (next.kills !== prev.best_kills) return next.kills > prev.best_kills;
+  return next.timeSec > prev.best_time_sec;
+}
+
+function upsertRunLeaderboard(mode, userId, name, payload) {
+  const safeMode = normalizeRunMode(mode);
+  if (!safeMode || !userId) return null;
+  const safe = sanitizeRunPayload(payload);
+  const prev = stGetRunLeaderboardEntry.get(safeMode, userId);
+  const out = shouldReplaceRunEntry(prev, safe)
+    ? {
+      mode: safeMode,
+      user_id: userId,
+      name: String(name || 'Player'),
+      best_stage: safe.stage,
+      best_score: safe.score,
+      best_time_sec: safe.timeSec,
+      best_kills: safe.kills,
+      updated_at: Date.now()
+    }
+    : {
+      mode: safeMode,
+      user_id: userId,
+      name: String(name || prev?.name || 'Player'),
+      best_stage: Math.max(1, Math.floor(Number(prev?.best_stage || 1))),
+      best_score: Math.max(0, Math.floor(Number(prev?.best_score || 0))),
+      best_time_sec: Math.max(0, Number(prev?.best_time_sec || 0)),
+      best_kills: Math.max(0, Math.floor(Number(prev?.best_kills || 0))),
+      updated_at: Date.now()
+    };
+  stUpsertRunLeaderboardEntry.run(
+    out.mode,
+    out.user_id,
+    out.name,
+    out.best_stage,
+    out.best_score,
+    out.best_time_sec,
+    out.best_kills,
+    out.updated_at
+  );
+  return stGetRunLeaderboardEntry.get(safeMode, userId);
+}
+
+function randomToken(length = 20) {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let out = '';
+  for (let i = 0; i < length; i += 1) {
+    out += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return out;
+}
+
+function createUniqueUserTag() {
+  for (let i = 0; i < 30; i += 1) {
+    const tag = randomToken(8);
+    const exists = stGetUserProfileByTag.get(tag);
+    if (!exists) return tag;
+  }
+  return `${Date.now().toString(36).toUpperCase()}${Math.floor(Math.random() * 9999).toString().padStart(4, '0')}`;
+}
+
+function ensureUserProfile(userId, name) {
+  if (!userId) return null;
+  const now = Date.now();
+  const safeName = String(name || 'Player').slice(0, 24) || 'Player';
+  const prev = stGetUserProfile.get(userId);
+  if (!prev) {
+    const tag = createUniqueUserTag();
+    stInsertUserProfile.run(userId, safeName, tag, now);
+    return stGetUserProfile.get(userId);
+  }
+  if (String(prev.name || '') !== safeName) {
+    stUpdateUserProfileName.run(safeName, now, userId);
+  }
+  return stGetUserProfile.get(userId);
+}
+
+function areFriends(userId, otherUserId) {
+  if (!userId || !otherUserId || userId === otherUserId) return false;
+  return !!stGetFriendLink.get(userId, otherUserId);
+}
+
+const txCreateFriendPair = appDb.transaction((userId, otherUserId) => {
+  const now = Date.now();
+  stInsertFriendLink.run(userId, otherUserId, now);
+  stInsertFriendLink.run(otherUserId, userId, now);
+});
+
+function createFriendInvite(fromUserId, toUserId) {
+  if (!fromUserId || !toUserId || fromUserId === toUserId) return null;
+  const existing = stFindPendingInviteByPair.get(fromUserId, toUserId);
+  if (existing) return existing;
+  const now = Date.now();
+  const partyKey = randomToken(24);
+  stInsertFriendInvite.run(fromUserId, toUserId, partyKey, now, now);
+  return stFindPendingInviteByPair.get(fromUserId, toUserId);
+}
 
 function ensurePvpPlayer(userId, name) {
   if (!userId) return null;
   const now = Date.now();
-  stInsertPlayer.run({ user_id: userId, name: String(name || 'Player'), updated_at: now });
+  const safeName = String(name || 'Player');
+  stInsertPlayer.run({ user_id: userId, name: safeName, updated_at: now });
+  ensureUserProfile(userId, safeName);
   return stGetPlayer.get(userId);
 }
 
@@ -302,6 +543,7 @@ function sanitizeProgressPayload(payload) {
     .filter((r) => r && typeof r === 'object')
     .map((r) => ({
       name: String(r?.name ?? 'PLAYER').slice(0, 24),
+      mode: normalizeRunMode(r?.mode) || (String(r?.mode || '').toLowerCase() === 'defense' ? 'defense' : 'survival'),
       totalScore: Math.max(0, Math.floor(Number(r?.totalScore) || 0)),
       timeSec: Math.max(0, Number(r?.timeSec) || 0),
       kills: Math.max(0, Math.floor(Number(r?.kills) || 0)),
@@ -1005,7 +1247,9 @@ class BattleRoom extends Room {
 }
 
 class BattleSurvivalRoom extends Room {
-  onCreate() {
+  onCreate(options = {}) {
+    this.mode = String(options?.mode || 'pvp').toLowerCase() === 'coop' ? 'coop' : 'pvp';
+    this.isCoopMode = this.mode === 'coop';
     this.maxClients = 2;
     this.setState(new BattleState());
     this.sessionAuth = new Map();
@@ -1058,6 +1302,7 @@ class BattleSurvivalRoom extends Room {
     });
 
     this.onMessage('pvp.damage', (c, msg) => {
+      if (this.isCoopMode) return;
       if (this.state.phase !== 'running') return;
       const attacker = this.state.players.get(c.sessionId);
       if (!attacker) return;
@@ -1583,9 +1828,17 @@ class BattleSurvivalRoom extends Room {
           target.hp = Math.max(0, target.hp - dmg);
           this.broadcast('pvp.damage', { fromSid: id, toSid: targetSid, damage: dmg, hp: target.hp });
           if (target.hp <= 0 && this.state.phase !== 'ended') {
-            const winnerSid = this.clients.map((x) => x.sessionId).find((sid) => sid !== targetSid) || '';
-            this.finalizeMatch(winnerSid, 'hp_zero');
-            return;
+            if (this.isCoopMode) {
+              const aliveCount = Array.from(this.state.players.values()).filter((p) => p.hp > 0).length;
+              if (aliveCount <= 0) {
+                this.finalizeMatch('', 'all_down');
+                return;
+              }
+            } else {
+              const winnerSid = this.clients.map((x) => x.sessionId).find((sid) => sid !== targetSid) || '';
+              this.finalizeMatch(winnerSid, 'hp_zero');
+              return;
+            }
           }
         }
       }
@@ -1724,9 +1977,9 @@ class BattleSurvivalRoom extends Room {
     this.pveEnemies.clear();
     this.state.enemies.clear();
     this.state.winnerSid = winnerSid || '';
-    this.broadcast('match.end', { winnerSid: winnerSid || null, reason });
+    this.broadcast('match.end', { winnerSid: winnerSid || null, reason, mode: this.mode });
 
-    if (!this.resultCommitted) {
+    if (!this.resultCommitted && !this.isCoopMode) {
       this.resultCommitted = true;
       const loserSid = this.clients.map((x) => x.sessionId).find((sid) => sid !== winnerSid) || '';
       const winnerAuth = this.sessionAuth.get(winnerSid);
@@ -1763,8 +2016,13 @@ class BattleSurvivalRoom extends Room {
       if (key.endsWith(`|${client.sessionId}`)) this.pveContactAt.delete(key);
     }
     if (this.state.phase !== 'ended') {
-      const winnerSid = this.clients.map((x) => x.sessionId).find((sid) => sid !== client.sessionId) || '';
-      if (winnerSid) this.finalizeMatch(winnerSid, 'disconnect');
+      if (this.isCoopMode) {
+        const alive = this.clients.map((x) => x.sessionId).filter((sid) => this.state.players.has(sid));
+        if (alive.length === 0) this.finalizeMatch('', 'disconnect');
+      } else {
+        const winnerSid = this.clients.map((x) => x.sessionId).find((sid) => sid !== client.sessionId) || '';
+        if (winnerSid) this.finalizeMatch(winnerSid, 'disconnect');
+      }
     }
   }
 }
@@ -1853,6 +2111,9 @@ const authHandler = async (req, res) => {
       name: String(payload.name || payload.email || 'Player'),
       picture: String(payload.picture || '')
     };
+    ensurePvpPlayer(user.id, user.name);
+    const profile = ensureUserProfile(user.id, user.name);
+    user.tag = String(profile?.tag || '');
     const token = jwt.sign(
       { sub: user.id, name: user.name, email: user.email, picture: user.picture },
       JWT_SECRET,
@@ -1872,7 +2133,8 @@ function verifyAuthHeader(req) {
   const payload = jwt.verify(token, JWT_SECRET);
   const userId = String(payload?.sub || payload?.userId || '');
   if (!userId) throw new Error('invalid_token');
-  return { userId };
+  const name = String(payload?.name || payload?.email || 'Player');
+  return { userId, name };
 }
 
 const gameServer = new Server({
@@ -1903,6 +2165,123 @@ const gameServer = new Server({
         LIMIT ?
       `).all(limit);
       return res.json({ rows });
+    });
+    expressApp.get('/leaderboard', (req, res) => {
+      const mode = String(req.query?.mode || 'survival').trim().toLowerCase();
+      const limitRaw = Number(req.query?.limit || 30);
+      const limit = Math.max(1, Math.min(100, Math.floor(limitRaw)));
+      if (mode === 'pvp') {
+        const rows = pvpDb.prepare(`
+          SELECT user_id, name, mmr, wins, losses, matches, updated_at
+          FROM pvp_players
+          ORDER BY mmr DESC, wins DESC, losses ASC, updated_at DESC
+          LIMIT ?
+        `).all(limit);
+        return res.json({ mode, rows });
+      }
+      const runMode = normalizeRunMode(mode);
+      if (!runMode) return res.status(400).json({ error: 'invalid_mode' });
+      const rows = appDb.prepare(`
+        SELECT mode, user_id, name, best_stage, best_score, best_time_sec, best_kills, updated_at
+        FROM run_leaderboard
+        WHERE mode = ?
+        ORDER BY best_stage DESC, best_score DESC, best_kills DESC, best_time_sec DESC, updated_at ASC
+        LIMIT ?
+      `).all(runMode, limit);
+      return res.json({ mode: runMode, rows });
+    });
+    expressApp.post('/leaderboard/submit', (req, res) => {
+      try {
+        const { userId, name } = verifyAuthHeader(req);
+        const mode = normalizeRunMode(req.body?.mode);
+        if (!mode) return res.status(400).json({ error: 'invalid_mode' });
+        const row = upsertRunLeaderboard(mode, userId, name, req.body || {});
+        return res.json({ mode, row });
+      } catch (err) {
+        return res.status(401).json({ error: String(err?.message || err) });
+      }
+    });
+    expressApp.get('/friends/me', (req, res) => {
+      try {
+        const { userId, name } = verifyAuthHeader(req);
+        const me = ensureUserProfile(userId, name);
+        if (!me) return res.status(404).json({ error: 'profile_not_found' });
+        return res.json({ user: me });
+      } catch (err) {
+        return res.status(401).json({ error: String(err?.message || err) });
+      }
+    });
+    expressApp.get('/friends/list', (req, res) => {
+      try {
+        const { userId, name } = verifyAuthHeader(req);
+        ensureUserProfile(userId, name);
+        const rows = stListFriends.all(userId);
+        return res.json({ rows });
+      } catch (err) {
+        return res.status(401).json({ error: String(err?.message || err) });
+      }
+    });
+    expressApp.post('/friends/add', (req, res) => {
+      try {
+        const { userId, name } = verifyAuthHeader(req);
+        ensureUserProfile(userId, name);
+        const tag = String(req.body?.tag || '').trim().toUpperCase();
+        if (!tag) return res.status(400).json({ error: 'tag_required' });
+        const target = stGetUserProfileByTag.get(tag);
+        if (!target) return res.status(404).json({ error: 'tag_not_found' });
+        if (target.user_id === userId) return res.status(400).json({ error: 'cannot_add_self' });
+        txCreateFriendPair(userId, target.user_id);
+        return res.json({ ok: true, friend: target });
+      } catch (err) {
+        return res.status(401).json({ error: String(err?.message || err) });
+      }
+    });
+    expressApp.get('/friends/invites', (req, res) => {
+      try {
+        const { userId, name } = verifyAuthHeader(req);
+        ensureUserProfile(userId, name);
+        const incoming = stGetIncomingInvites.all(userId);
+        const outgoing = stGetOutgoingInvites.all(userId);
+        return res.json({ incoming, outgoing });
+      } catch (err) {
+        return res.status(401).json({ error: String(err?.message || err) });
+      }
+    });
+    expressApp.post('/friends/invite', (req, res) => {
+      try {
+        const { userId, name } = verifyAuthHeader(req);
+        ensureUserProfile(userId, name);
+        const friendUserId = String(req.body?.friendUserId || '').trim();
+        if (!friendUserId) return res.status(400).json({ error: 'friend_user_id_required' });
+        if (!areFriends(userId, friendUserId)) return res.status(403).json({ error: 'not_friends' });
+        const invite = createFriendInvite(userId, friendUserId);
+        if (!invite) return res.status(400).json({ error: 'invite_create_failed' });
+        return res.json({ invite });
+      } catch (err) {
+        return res.status(401).json({ error: String(err?.message || err) });
+      }
+    });
+    expressApp.post('/friends/invites/:id/respond', (req, res) => {
+      try {
+        const { userId, name } = verifyAuthHeader(req);
+        ensureUserProfile(userId, name);
+        const inviteId = Math.max(0, Math.floor(Number(req.params?.id || 0)));
+        const accept = !!req.body?.accept;
+        if (!inviteId) return res.status(400).json({ error: 'invite_id_required' });
+        const invite = stGetInviteById.get(inviteId);
+        if (!invite) return res.status(404).json({ error: 'invite_not_found' });
+        if (String(invite.to_user_id) !== userId) return res.status(403).json({ error: 'invite_forbidden' });
+        if (String(invite.status) !== 'pending') return res.status(400).json({ error: 'invite_not_pending' });
+        stUpdateInviteStatus.run(accept ? 'accepted' : 'rejected', Date.now(), inviteId);
+        return res.json({
+          ok: true,
+          inviteId,
+          status: accept ? 'accepted' : 'rejected',
+          partyKey: accept ? String(invite.party_key || '') : ''
+        });
+      } catch (err) {
+        return res.status(401).json({ error: String(err?.message || err) });
+      }
     });
     expressApp.get('/user/progress', (req, res) => {
       try {
@@ -1935,6 +2314,11 @@ const gameServer = new Server({
 
 gameServer.define('battle', BattleRoom);
 gameServer.define('battle_survival', BattleSurvivalRoom);
+gameServer.define('battle_coop', class BattleCoopRoom extends BattleSurvivalRoom {
+  onCreate(options = {}) {
+    super.onCreate({ ...options, mode: 'coop' });
+  }
+}).filterBy(['partyKey']);
 
 gameServer.listen(PORT).then(() => {
   console.log(`[game-server:colyseus] listening on :${PORT}`);

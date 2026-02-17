@@ -43,6 +43,7 @@ export default class SaveSystem {
         .filter((r) => r && typeof r === 'object')
         .map((r) => ({
           name: String(r?.name ?? 'PLAYER').slice(0, 24),
+          mode: String(r?.mode ?? 'survival').toLowerCase(),
           totalScore: Math.max(0, Math.floor(Number(r?.totalScore) || 0)),
           timeSec: Math.max(0, Number(r?.timeSec) || 0),
           kills: Math.max(0, Math.floor(Number(r?.kills) || 0)),
@@ -96,6 +97,7 @@ export default class SaveSystem {
     const now = Date.now();
     const safe = {
       name: String(record?.name ?? 'PLAYER').slice(0, 24),
+      mode: String(record?.mode ?? 'survival').toLowerCase(),
       totalScore: Math.max(0, Math.floor(Number(record?.totalScore) || 0)),
       timeSec: Math.max(0, Number(record?.timeSec) || 0),
       kills: Math.max(0, Math.floor(Number(record?.kills) || 0)),
