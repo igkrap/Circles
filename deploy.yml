@@ -34,10 +34,13 @@ jobs:
         env:
           VITE_PVP_SERVER_URL: ${{ vars.VITE_PVP_SERVER_URL }}
           VITE_GOOGLE_CLIENT_ID: ${{ vars.VITE_GOOGLE_CLIENT_ID }}
+          VITE_BUILD_ID: ${{ github.sha }}-${{ github.run_number }}
         run: |
           export VITE_PVP_SERVER_URL="${VITE_PVP_SERVER_URL:-http://localhost:8788}"
           export VITE_GOOGLE_CLIENT_ID="${VITE_GOOGLE_CLIENT_ID:-}"
+          export VITE_BUILD_ID="${VITE_BUILD_ID:-manual-$(date +%s)}"
           echo "VITE_PVP_SERVER_URL=$VITE_PVP_SERVER_URL"
+          echo "VITE_BUILD_ID=$VITE_BUILD_ID"
           if [ -z "$VITE_GOOGLE_CLIENT_ID" ]; then
             echo "VITE_GOOGLE_CLIENT_ID is empty (Google login will be disabled)"
           fi

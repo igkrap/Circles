@@ -7,7 +7,7 @@
     "dev": "vite",
     "dev:server": "node --env-file=.env server/index.js",
     "start:server:prod": "node --env-file=.env.server server/index.js",
-    "build": "vite build",
+    "build": "vite build && node scripts/build/write-version.mjs dist/version.json",
     "preview": "vite preview",
     "deploy:server:mac": "bash scripts/server/deploy-mac.sh",
     "install:server:service": "bash scripts/server/install-launchd.sh",
