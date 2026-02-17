@@ -45,7 +45,7 @@ const SHOT_ARC_DOT = 0.84;
 const MAX_HP_BASE = 50;
 const MOVE_SPEED_BASE = 270;
 const MAX_NET_MOVE_SPEED = 620;
-const COOP_FINAL_STAGE = 30;
+const COOP_FINAL_STAGE = 20;
 const COOP_REVIVE_RADIUS = 84;
 const COOP_REVIVE_HOLD_MS = 4000;
 const COOP_REVIVE_HP_RATIO = 0.2;
@@ -54,7 +54,9 @@ const ENEMY_CONTACT_DAMAGE = {
   scout: 7,
   tank: 12,
   brute: 12,
-  elite: 18
+  elite: 18,
+  miniboss: 22,
+  boss: 34
 };
 
 const CARD_POOL = ['ATK_UP', 'FIRE_RATE_UP', 'MAX_HP_UP', 'MOVE_SPEED_UP', 'SHOT_RANGE_UP', 'HEAL_UP'];
@@ -1483,6 +1485,7 @@ class BattleSurvivalRoom extends Room {
     this.pveSpawnAccMs = 0;
     this.pveSyncAccMs = 0;
     this.pveSeq = 1;
+    this.pveBossAttacks = [];
     this.coopStage = 1;
     this.coopStageKills = 0;
     this.coopStageKillGoal = this.getCoopStageKillGoal(1);
@@ -1660,9 +1663,20 @@ class BattleSurvivalRoom extends Room {
       e.hp = Math.max(0, e.hp - dmg);
       this.broadcast('pve.damage', { id, hp: e.hp, damage: dmg, fromSid });
       if (e.hp <= 0) {
-        const xpGain = e.type === 'elite' ? 28 : e.type === 'tank' ? 16 : 10;
+        const xpGain = e.type === 'boss'
+          ? 220
+          : e.type === 'miniboss'
+            ? 82
+            : e.type === 'elite'
+              ? 28
+              : e.type === 'tank'
+                ? 16
+                : 10;
         this.grantPvpXp(fromSid, xpGain);
-        if (this.isCoopMode) this.onCoopEnemyKilled();
+        if (String(e.type || '') === 'boss') {
+          this.removeBossAttacksBySource(id);
+        }
+        if (this.isCoopMode) this.onCoopEnemyKilled(String(e.type || ''));
         this.pveEnemies.delete(id);
         this.state.enemies.delete(id);
       } else {
@@ -2044,28 +2058,111 @@ class BattleSurvivalRoom extends Room {
     return Math.min(1.9, 0.72 + elapsedSec * 0.0075);
   }
 
-  calcPveEnemyStats(type, difficultyScalar, elapsedSec) {
+  isCoopBossStage(stage = this.coopStage) {
+    const s = Math.max(1, Math.floor(Number(stage) || 1));
+    return s % 5 === 0;
+  }
+
+  getCoopStageDifficultyScalar(stage = this.coopStage) {
+    const s = Math.max(1, Math.floor(Number(stage) || 1));
+    return Math.min(3.25, 0.85 + 0.11 * (s - 1));
+  }
+
+  getCoopSpawnIntervalMs(stage = this.coopStage) {
+    const s = Math.max(1, Math.floor(Number(stage) || 1));
+    if (this.isCoopBossStage(s)) return 999_999;
+    return Math.max(320, 1200 - 42 * (s - 1));
+  }
+
+  getCoopAliveCap(stage = this.coopStage) {
+    const s = Math.max(1, Math.floor(Number(stage) || 1));
+    if (this.isCoopBossStage(s)) return 1;
+    return Math.min(88, 20 + Math.floor(s * 3.3));
+  }
+
+  getCoopStageKillGoal(stage) {
+    const s = Math.max(1, Math.floor(Number(stage) || 1));
+    if (this.isCoopBossStage(s)) return 1;
+    return 24 + 7 * (s - 1);
+  }
+
+  pickCoopEnemyType(stage = this.coopStage) {
+    const s = Math.max(1, Math.floor(Number(stage) || 1));
+    const r = Math.random();
+    if (s <= 2) {
+      if (r < 0.84) return 'scout';
+      return 'tank';
+    }
+    if (s <= 5) {
+      if (r < 0.58) return 'scout';
+      if (r < 0.86) return 'tank';
+      return 'elite';
+    }
+    if (s <= 10) {
+      if (r < 0.4) return 'scout';
+      if (r < 0.73) return 'tank';
+      if (r < 0.95) return 'elite';
+      return 'miniboss';
+    }
+    if (r < 0.28) return 'scout';
+    if (r < 0.6) return 'tank';
+    if (r < 0.9) return 'elite';
+    return 'miniboss';
+  }
+
+  calcPveEnemyStats(type, difficultyScalar, elapsedSec, stage = this.coopStage) {
     let hp = 18;
     let speed = 110;
-    if (type === 'tank') {
-      hp = Math.floor(34 * difficultyScalar);
-      speed = 90 * difficultyScalar;
+    if (type === 'boss') {
+      hp = Math.floor(820 * difficultyScalar * (1 + Math.max(0, stage - 1) * 0.05));
+      speed = 108 + stage * 2.6;
+    } else if (type === 'miniboss') {
+      hp = Math.floor(220 * difficultyScalar * (1 + Math.max(0, stage - 1) * 0.03));
+      speed = 116 + stage * 2.2;
+    } else if (type === 'tank') {
+      hp = Math.floor(38 * difficultyScalar);
+      speed = 94 * difficultyScalar;
     } else if (type === 'elite') {
-      hp = Math.floor(24 * difficultyScalar);
-      speed = 135 * difficultyScalar;
+      hp = Math.floor(28 * difficultyScalar);
+      speed = 138 * difficultyScalar;
     } else {
-      hp = Math.floor(10 * difficultyScalar);
-      speed = 140 * difficultyScalar;
+      hp = Math.floor(11 * difficultyScalar);
+      speed = 145 * difficultyScalar;
     }
-    const slowMul = elapsedSec < 45 ? 0.42 : (elapsedSec < 90 ? 0.56 : 0.74);
-    speed *= slowMul;
+    let paceMul;
+    if (this.isCoopMode) {
+      paceMul = 0.68 + Math.min(0.28, Math.max(0, stage - 1) * 0.012);
+    } else {
+      paceMul = elapsedSec < 45 ? 0.42 : (elapsedSec < 90 ? 0.56 : 0.74);
+    }
+    speed *= paceMul;
     return {
       hp: clamp(Math.floor(hp), 1, 999999),
       speed: clamp(speed, 1, 99999)
     };
   }
 
-  pickPveSpawnPoint() {
+  pointSegDistSq(px, py, x1, y1, x2, y2) {
+    const vx = x2 - x1;
+    const vy = y2 - y1;
+    const wx = px - x1;
+    const wy = py - y1;
+    const vv = vx * vx + vy * vy;
+    if (vv <= 1e-6) {
+      const dx = px - x1;
+      const dy = py - y1;
+      return dx * dx + dy * dy;
+    }
+    let t = (wx * vx + wy * vy) / vv;
+    t = clamp(t, 0, 1);
+    const cx = x1 + vx * t;
+    const cy = y1 + vy * t;
+    const dx = px - cx;
+    const dy = py - cy;
+    return dx * dx + dy * dy;
+  }
+
+  pickPveSpawnPoint(minRadius = 460, maxRadius = 760) {
     const players = Array.from(this.state.players.values()).filter((p) => p.hp > 0);
     const centerX = players.length > 0
       ? players.reduce((acc, p) => acc + p.x, 0) / players.length
@@ -2074,38 +2171,41 @@ class BattleSurvivalRoom extends Room {
       ? players.reduce((acc, p) => acc + p.y, 0) / players.length
       : WORLD_H * 0.5;
     const angle = Math.random() * Math.PI * 2;
-    const radius = randInt(460, 760);
+    const safeMin = clamp(Math.floor(Math.min(minRadius, maxRadius)), 80, 4200);
+    const safeMax = clamp(Math.floor(Math.max(minRadius, maxRadius)), safeMin, 4200);
+    const radius = randInt(safeMin, safeMax);
     return {
       x: clamp(centerX + Math.cos(angle) * radius, ARENA_MIN_X, ARENA_MAX_X),
       y: clamp(centerY + Math.sin(angle) * radius, ARENA_MIN_Y, ARENA_MAX_Y)
     };
   }
 
-  spawnPveEnemy(elapsedSec) {
-    const r = Math.random();
-    let type = 'scout';
-    if (elapsedSec > 45 && r > 0.76) type = 'tank';
-    if (elapsedSec > 90 && r > 0.9) type = 'elite';
-    const { x, y } = this.pickPveSpawnPoint();
-    const difficulty = this.getPvpDifficultyScalar(elapsedSec);
-    const stats = this.calcPveEnemyStats(type, difficulty, elapsedSec);
+  spawnPveEnemyAt(x, y, type, elapsedSec, stage = this.coopStage) {
+    const safeStage = Math.max(1, Math.floor(Number(stage || this.coopStage || 1)));
+    const sx = clamp(Number(x || 0), ARENA_MIN_X, ARENA_MAX_X);
+    const sy = clamp(Number(y || 0), ARENA_MIN_Y, ARENA_MAX_Y);
+    const difficulty = this.isCoopMode
+      ? this.getCoopStageDifficultyScalar(safeStage)
+      : this.getPvpDifficultyScalar(elapsedSec);
+    const stats = this.calcPveEnemyStats(type, difficulty, elapsedSec, safeStage);
     const id = `sp_${this.pveSeq++}_${Math.floor(elapsedSec * 1000)}`;
     this.pveEnemies.set(id, {
       id,
       type,
-      x,
-      y,
+      x: sx,
+      y: sy,
       vx: 0,
       vy: 0,
       hp: stats.hp,
       maxHp: stats.hp,
-      speed: stats.speed
+      speed: stats.speed,
+      ai: null
     });
     const stEnemy = new EnemyState();
     stEnemy.id = id;
     stEnemy.type = type;
-    stEnemy.x = x;
-    stEnemy.y = y;
+    stEnemy.x = sx;
+    stEnemy.y = sy;
     stEnemy.hp = stats.hp;
     stEnemy.maxHp = stats.hp;
     stEnemy.speed = stats.speed;
@@ -2113,13 +2213,444 @@ class BattleSurvivalRoom extends Room {
     this.broadcast('pve.spawn', {
       id,
       type,
-      x,
-      y,
+      x: sx,
+      y: sy,
       hp: stats.hp,
       speed: stats.speed,
       vx: 0,
       vy: 0
     });
+    return this.pveEnemies.get(id) || null;
+  }
+
+  spawnPveEnemy(elapsedSec, forcedType = '', forcedStage = 0) {
+    const stage = Math.max(1, Math.floor(Number(forcedStage || this.coopStage || 1)));
+    const type = forcedType || (this.isCoopMode ? this.pickCoopEnemyType(stage) : (() => {
+      const r = Math.random();
+      if (elapsedSec > 90 && r > 0.9) return 'elite';
+      if (elapsedSec > 45 && r > 0.76) return 'tank';
+      return 'scout';
+    })());
+    const minRadius = this.isCoopMode ? 420 : 460;
+    const maxRadius = this.isCoopMode ? 820 : 760;
+    const { x, y } = this.pickPveSpawnPoint(minRadius, maxRadius);
+    return this.spawnPveEnemyAt(x, y, type, elapsedSec, stage);
+  }
+
+  spawnCoopBoss(stage, elapsedSec) {
+    const enemy = this.spawnPveEnemy(elapsedSec, 'boss', stage);
+    if (!enemy) return null;
+    enemy.ai = {
+      phase: 'idle',
+      phaseUntil: 0,
+      cdUntil: Date.now() + 900,
+      dirX: 1,
+      dirY: 0,
+      dashUntil: 0,
+      comboLeft: 0,
+      summonCount: 0
+    };
+    this.broadcastBossAttack({
+      kind: 'spawn',
+      x: enemy.x,
+      y: enemy.y,
+      stage
+    });
+    return enemy;
+  }
+
+  broadcastBossAttack(payload) {
+    if (!this.isCoopMode || !payload) return;
+    this.broadcast('pve.boss.attack', payload);
+  }
+
+  addBossLineAttacks(fromEnemy, lines, durationMs, width, damage, tickMs = 120) {
+    if (!Array.isArray(lines) || lines.length === 0 || !fromEnemy) return;
+    const now = Date.now();
+    const dur = Math.max(120, Math.floor(Number(durationMs) || 520));
+    const safeWidth = Math.max(4, Math.floor(Number(width) || 14));
+    const safeDamage = Math.max(1, Math.floor(Number(damage) || 18));
+    const safeTick = Math.max(50, Math.floor(Number(tickMs) || 120));
+    for (let i = 0; i < lines.length; i += 1) {
+      const line = lines[i] || {};
+      const id = `atk_${this.pveSeq++}_${i}_${now}`;
+      this.pveBossAttacks.push({
+        id,
+        sourceId: String(fromEnemy.id || ''),
+        x1: Number(line.x1 || fromEnemy.x),
+        y1: Number(line.y1 || fromEnemy.y),
+        x2: Number(line.x2 || fromEnemy.x),
+        y2: Number(line.y2 || fromEnemy.y),
+        width: safeWidth,
+        damage: safeDamage,
+        until: now + dur,
+        nextTickAt: now + safeTick,
+        tickMs: safeTick
+      });
+    }
+    this.broadcastBossAttack({
+      kind: 'laser',
+      sourceId: String(fromEnemy.id || ''),
+      durationMs: dur,
+      width: safeWidth,
+      lines: lines.map((line) => ({
+        x1: Number(line?.x1 || fromEnemy.x),
+        y1: Number(line?.y1 || fromEnemy.y),
+        x2: Number(line?.x2 || fromEnemy.x),
+        y2: Number(line?.y2 || fromEnemy.y)
+      }))
+    });
+  }
+
+  removeBossAttacksBySource(sourceId) {
+    const sid = String(sourceId || '');
+    if (!sid || !Array.isArray(this.pveBossAttacks) || this.pveBossAttacks.length === 0) return;
+    this.pveBossAttacks = this.pveBossAttacks.filter((x) => String(x?.sourceId || '') !== sid);
+  }
+
+  damagePlayerFromEnemy(sourceId, targetSid, damage, now) {
+    const target = this.state.players.get(targetSid);
+    if (!target || target.hp <= 0) return false;
+    const safeDamage = Math.max(1, Math.floor(Number(damage) || 0));
+    target.hp = Math.max(0, target.hp - safeDamage);
+    this.broadcast('pvp.damage', { fromSid: String(sourceId || ''), toSid: targetSid, damage: safeDamage, hp: target.hp });
+    if (target.hp > 0 || this.state.phase === 'ended') return false;
+    if (this.isCoopMode) {
+      const aliveCount = Array.from(this.state.players.values()).filter((p) => p.hp > 0).length;
+      if (aliveCount <= 0) {
+        this.finalizeMatch('', 'all_down');
+        return true;
+      }
+      return false;
+    }
+    const winnerSid = this.clients.map((x) => x.sessionId).find((sid) => sid !== targetSid) || '';
+    this.finalizeMatch(winnerSid, 'hp_zero');
+    return true;
+  }
+
+  updateCoopBossAttacks(now) {
+    if (!Array.isArray(this.pveBossAttacks) || this.pveBossAttacks.length === 0) return false;
+    let ended = false;
+    for (let i = this.pveBossAttacks.length - 1; i >= 0; i -= 1) {
+      const atk = this.pveBossAttacks[i];
+      if (!atk || now >= Number(atk.until || 0)) {
+        this.pveBossAttacks.splice(i, 1);
+        continue;
+      }
+      if (now < Number(atk.nextTickAt || 0)) continue;
+      atk.nextTickAt = now + Math.max(50, Math.floor(Number(atk.tickMs || 120)));
+      const rr = PLAYER_CONTACT_RADIUS + Math.max(4, Number(atk.width || 0)) * 0.5;
+      const rrSq = rr * rr;
+      for (const [sid, player] of this.state.players.entries()) {
+        if (!player || player.hp <= 0) continue;
+        const d2 = this.pointSegDistSq(
+          Number(player.x || 0),
+          Number(player.y || 0),
+          Number(atk.x1 || 0),
+          Number(atk.y1 || 0),
+          Number(atk.x2 || 0),
+          Number(atk.y2 || 0)
+        );
+        if (d2 > rrSq) continue;
+        const hitKey = `atk|${atk.id}|${sid}`;
+        const lastHit = this.pveContactAt.get(hitKey) || 0;
+        if (now - lastHit < 260) continue;
+        this.pveContactAt.set(hitKey, now);
+        ended = this.damagePlayerFromEnemy(atk.sourceId, sid, atk.damage, now) || ended;
+      }
+    }
+    return ended;
+  }
+
+  updateCoopBossEnemy(enemy, now, dtSec, targetSid, target) {
+    if (!enemy || !target || !targetSid) return false;
+    const stage = Math.max(1, Math.floor(Number(this.coopStage || 1)));
+    const ai = enemy.ai || (enemy.ai = {
+      phase: 'idle',
+      phaseUntil: 0,
+      cdUntil: now + 900,
+      dirX: 1,
+      dirY: 0,
+      dashUntil: 0,
+      comboLeft: 0,
+      summonCount: 0
+    });
+    const elapsedSec = Math.max(0, Number(this.state.elapsedSec || ((now - this.startedAt) / 1000)));
+    const rotate = (vx, vy, angle) => {
+      const c = Math.cos(angle);
+      const s = Math.sin(angle);
+      return { x: (vx * c) - (vy * s), y: (vx * s) + (vy * c) };
+    };
+    const setAim = () => {
+      const dx = Number(target.x || 0) - Number(enemy.x || 0);
+      const dy = Number(target.y || 0) - Number(enemy.y || 0);
+      const len = Math.hypot(dx, dy) || 1;
+      ai.dirX = dx / len;
+      ai.dirY = dy / len;
+    };
+    const fanLines = (count, spread) => {
+      const out = [];
+      const mid = Math.floor(count * 0.5);
+      for (let i = 0; i < count; i += 1) {
+        const offset = (i - mid) * spread;
+        const d = rotate(ai.dirX, ai.dirY, offset);
+        const L = Math.max(WORLD_W, WORLD_H) * 2.2;
+        out.push({
+          x1: enemy.x,
+          y1: enemy.y,
+          x2: enemy.x + d.x * L,
+          y2: enemy.y + d.y * L
+        });
+      }
+      return out;
+    };
+    const radialLines = (count) => {
+      const out = [];
+      const L = Math.max(WORLD_W, WORLD_H) * 2.2;
+      for (let i = 0; i < count; i += 1) {
+        const a = (i / count) * Math.PI * 2;
+        out.push({
+          x1: enemy.x,
+          y1: enemy.y,
+          x2: enemy.x + Math.cos(a) * L,
+          y2: enemy.y + Math.sin(a) * L
+        });
+      }
+      return out;
+    };
+    const clampEnemy = () => {
+      enemy.x = clamp(enemy.x, ARENA_MIN_X, ARENA_MAX_X);
+      enemy.y = clamp(enemy.y, ARENA_MIN_Y, ARENA_MAX_Y);
+    };
+    const summonAdds = (count) => {
+      const safeCount = Math.max(1, Math.floor(Number(count) || 0));
+      const livingCap = Math.max(4, this.getCoopAliveCap(stage));
+      const baseA = Math.random() * Math.PI * 2;
+      for (let i = 0; i < safeCount; i += 1) {
+        if (this.pveEnemies.size >= livingCap + 6) break;
+        const a = baseA + (i / safeCount) * Math.PI * 2 + ((Math.random() - 0.5) * 0.46);
+        const radius = randInt(98, 168);
+        const x = clamp(Number(enemy.x || 0) + Math.cos(a) * radius, ARENA_MIN_X, ARENA_MAX_X);
+        const y = clamp(Number(enemy.y || 0) + Math.sin(a) * radius, ARENA_MIN_Y, ARENA_MAX_Y);
+        let spawnType = 'elite';
+        const pick = Math.random();
+        if (stage >= 14 && pick > 0.84) {
+          spawnType = 'miniboss';
+        } else if (pick > 0.52) {
+          spawnType = 'tank';
+        }
+        this.spawnPveEnemyAt(x, y, spawnType, elapsedSec, stage);
+      }
+    };
+
+    if (ai.phase === 'idle') {
+      if (now >= Number(ai.cdUntil || 0)) {
+        setAim();
+        const roll = Math.random();
+        if (roll < 0.3) {
+          ai.phase = 'dash_warn';
+          ai.phaseUntil = now + 520;
+          ai.comboLeft = randInt(2, 3);
+          const lines = fanLines(1, 0);
+          this.broadcastBossAttack({
+            kind: 'dash_warn',
+            sourceId: String(enemy.id || ''),
+            durationMs: 520,
+            width: 12,
+            line: lines[0]
+          });
+          enemy.vx = 0;
+          enemy.vy = 0;
+          return false;
+        }
+        if (roll < 0.58) {
+          ai.phase = 'laser_warn';
+          ai.phaseUntil = now + 720;
+          const lines = fanLines(5, 0.22);
+          this.broadcastBossAttack({
+            kind: 'line_warn',
+            sourceId: String(enemy.id || ''),
+            durationMs: 720,
+            width: 9,
+            lines
+          });
+          enemy.vx = 0;
+          enemy.vy = 0;
+          return false;
+        }
+        if (roll < 0.82) {
+          ai.phase = 'nova_warn';
+          ai.phaseUntil = now + 700;
+          this.broadcastBossAttack({
+            kind: 'nova_warn',
+            sourceId: String(enemy.id || ''),
+            durationMs: 700,
+            x: enemy.x,
+            y: enemy.y,
+            radius: 210
+          });
+          enemy.vx = 0;
+          enemy.vy = 0;
+          return false;
+        }
+        ai.phase = 'summon';
+        ai.phaseUntil = now + 520;
+        ai.cdUntil = now + 1750;
+        ai.summonCount = stage >= 15 ? randInt(3, 4) : randInt(2, 3);
+        this.broadcastBossAttack({
+          kind: 'summon',
+          sourceId: String(enemy.id || ''),
+          durationMs: 520,
+          x: enemy.x,
+          y: enemy.y,
+          count: ai.summonCount
+        });
+        enemy.vx = 0;
+        enemy.vy = 0;
+        return false;
+      }
+      const dx = Number(target.x || 0) - Number(enemy.x || 0);
+      const dy = Number(target.y || 0) - Number(enemy.y || 0);
+      const len = Math.hypot(dx, dy) || 1;
+      enemy.vx = (dx / len) * enemy.speed * 0.74;
+      enemy.vy = (dy / len) * enemy.speed * 0.74;
+      enemy.x += enemy.vx * dtSec;
+      enemy.y += enemy.vy * dtSec;
+      clampEnemy();
+      return false;
+    }
+
+    if (ai.phase === 'dash_warn') {
+      enemy.vx = 0;
+      enemy.vy = 0;
+      if (now < Number(ai.phaseUntil || 0)) return false;
+      ai.phase = 'dash';
+      ai.dashUntil = now + 300;
+      return false;
+    }
+
+    if (ai.phase === 'dash') {
+      const dashSpeed = (900 + stage * 6.5);
+      enemy.vx = ai.dirX * dashSpeed;
+      enemy.vy = ai.dirY * dashSpeed;
+      enemy.x += enemy.vx * dtSec;
+      enemy.y += enemy.vy * dtSec;
+      let hitWall = false;
+      if (enemy.x <= ARENA_MIN_X || enemy.x >= ARENA_MAX_X || enemy.y <= ARENA_MIN_Y || enemy.y >= ARENA_MAX_Y) {
+        hitWall = true;
+      }
+      clampEnemy();
+      for (const [sid, p] of this.state.players.entries()) {
+        if (!p || p.hp <= 0) continue;
+        const dx = Number(p.x || 0) - Number(enemy.x || 0);
+        const dy = Number(p.y || 0) - Number(enemy.y || 0);
+        const distSq = dx * dx + dy * dy;
+        const radius = PLAYER_CONTACT_RADIUS + 24;
+        if (distSq > radius * radius) continue;
+        const hitKey = `dash|${enemy.id}|${sid}`;
+        const lastHit = this.pveContactAt.get(hitKey) || 0;
+        if (now - lastHit < 180) continue;
+        this.pveContactAt.set(hitKey, now);
+        if (this.damagePlayerFromEnemy(enemy.id, sid, 30 + Math.floor(stage * 0.6), now)) return true;
+      }
+      if (now < Number(ai.dashUntil || 0) && !hitWall) return false;
+      if (ai.comboLeft > 1) {
+        ai.comboLeft -= 1;
+        setAim();
+        ai.phase = 'dash_warn';
+        ai.phaseUntil = now + 280;
+        const lines = fanLines(1, 0);
+        this.broadcastBossAttack({
+          kind: 'dash_warn',
+          sourceId: String(enemy.id || ''),
+          durationMs: 280,
+          width: 12,
+          line: lines[0]
+        });
+        return false;
+      }
+      ai.comboLeft = 0;
+      ai.phase = 'idle';
+      ai.cdUntil = now + 1600;
+      enemy.vx = 0;
+      enemy.vy = 0;
+      return false;
+    }
+
+    if (ai.phase === 'laser_warn') {
+      enemy.vx = 0;
+      enemy.vy = 0;
+      if (now < Number(ai.phaseUntil || 0)) return false;
+      ai.phase = 'laser';
+      ai.phaseUntil = now + 700;
+      ai.cdUntil = now + 1900;
+      setAim();
+      this.addBossLineAttacks(
+        enemy,
+        fanLines(5, 0.22),
+        700,
+        18,
+        28 + Math.floor(stage * 0.9),
+        120
+      );
+      return false;
+    }
+
+    if (ai.phase === 'summon') {
+      enemy.vx = 0;
+      enemy.vy = 0;
+      if (now < Number(ai.phaseUntil || 0)) return false;
+      summonAdds(ai.summonCount || 2);
+      ai.summonCount = 0;
+      ai.phase = 'idle';
+      ai.cdUntil = Math.max(Number(ai.cdUntil || 0), now + 1500);
+      return false;
+    }
+
+    if (ai.phase === 'nova_warn') {
+      enemy.vx = 0;
+      enemy.vy = 0;
+      if (now < Number(ai.phaseUntil || 0)) return false;
+      ai.phase = 'nova';
+      ai.phaseUntil = now + 540;
+      ai.cdUntil = now + 2200;
+      this.addBossLineAttacks(
+        enemy,
+        radialLines(10),
+        560,
+        14,
+        20 + Math.floor(stage * 0.75),
+        130
+      );
+      const novaRadius = 210;
+      for (const [sid, p] of this.state.players.entries()) {
+        if (!p || p.hp <= 0) continue;
+        const dx = Number(p.x || 0) - Number(enemy.x || 0);
+        const dy = Number(p.y || 0) - Number(enemy.y || 0);
+        const distSq = dx * dx + dy * dy;
+        if (distSq > novaRadius * novaRadius) continue;
+        const hitKey = `nova|${enemy.id}|${sid}`;
+        const lastHit = this.pveContactAt.get(hitKey) || 0;
+        if (now - lastHit < 260) continue;
+        this.pveContactAt.set(hitKey, now);
+        if (this.damagePlayerFromEnemy(enemy.id, sid, 24 + Math.floor(stage * 0.8), now)) return true;
+      }
+      return false;
+    }
+
+    if (ai.phase === 'laser' || ai.phase === 'nova') {
+      enemy.vx = 0;
+      enemy.vy = 0;
+      if (now >= Number(ai.phaseUntil || 0)) {
+        ai.phase = 'idle';
+      }
+      return false;
+    }
+
+    ai.phase = 'idle';
+    enemy.vx = 0;
+    enemy.vy = 0;
+    return false;
   }
 
   syncPveEnemies() {
@@ -2195,11 +2726,29 @@ class BattleSurvivalRoom extends Room {
     }
 
     this.pveSpawnAccMs += dtMs;
-    const spawnEveryMs = Math.max(420, 1380 - elapsedSec * 7);
-    const aliveCap = Math.min(56, 14 + Math.floor(elapsedSec / 10));
-    while (this.pveSpawnAccMs >= spawnEveryMs && this.pveEnemies.size < aliveCap) {
-      this.pveSpawnAccMs -= spawnEveryMs;
-      this.spawnPveEnemy(elapsedSec);
+    if (this.isCoopMode) {
+      const stage = Math.max(1, Math.floor(Number(this.coopStage || 1)));
+      if (this.isCoopBossStage(stage)) {
+        this.pveSpawnAccMs = 0;
+        const hasBoss = Array.from(this.pveEnemies.values()).some((e) => String(e?.type || '') === 'boss');
+        if (!hasBoss) {
+          this.spawnCoopBoss(stage, elapsedSec);
+        }
+      } else {
+        const spawnEveryMs = this.getCoopSpawnIntervalMs(stage);
+        const aliveCap = this.getCoopAliveCap(stage);
+        while (this.pveSpawnAccMs >= spawnEveryMs && this.pveEnemies.size < aliveCap) {
+          this.pveSpawnAccMs -= spawnEveryMs;
+          this.spawnPveEnemy(elapsedSec, '', stage);
+        }
+      }
+    } else {
+      const spawnEveryMs = Math.max(420, 1380 - elapsedSec * 7);
+      const aliveCap = Math.min(56, 14 + Math.floor(elapsedSec / 10));
+      while (this.pveSpawnAccMs >= spawnEveryMs && this.pveEnemies.size < aliveCap) {
+        this.pveSpawnAccMs -= spawnEveryMs;
+        this.spawnPveEnemy(elapsedSec);
+      }
     }
 
     for (const [id, enemy] of this.pveEnemies.entries()) {
@@ -2219,44 +2768,42 @@ class BattleSurvivalRoom extends Room {
       }
       if (!target || !targetSid) continue;
 
-      const dx = target.x - enemy.x;
-      const dy = target.y - enemy.y;
-      const len = Math.hypot(dx, dy) || 1;
-      const vx = (dx / len) * enemy.speed;
-      const vy = (dy / len) * enemy.speed;
-      enemy.vx = vx;
-      enemy.vy = vy;
-      enemy.x = clamp(enemy.x + vx * dtSec, ARENA_MIN_X, ARENA_MAX_X);
-      enemy.y = clamp(enemy.y + vy * dtSec, ARENA_MIN_Y, ARENA_MAX_Y);
+      if (this.isCoopMode && String(enemy.type || '') === 'boss') {
+        if (this.updateCoopBossEnemy(enemy, now, dtSec, targetSid, target)) return;
+      } else {
+        const dx = target.x - enemy.x;
+        const dy = target.y - enemy.y;
+        const len = Math.hypot(dx, dy) || 1;
+        const vx = (dx / len) * enemy.speed;
+        const vy = (dy / len) * enemy.speed;
+        enemy.vx = vx;
+        enemy.vy = vy;
+        enemy.x = clamp(enemy.x + vx * dtSec, ARENA_MIN_X, ARENA_MAX_X);
+        enemy.y = clamp(enemy.y + vy * dtSec, ARENA_MIN_Y, ARENA_MAX_Y);
+      }
       const stEnemy = this.state.enemies.get(id);
       if (stEnemy) {
         stEnemy.x = enemy.x;
         stEnemy.y = enemy.y;
       }
 
-      if (bestDist <= PLAYER_CONTACT_RADIUS) {
+      const curDx = Number(target.x || 0) - Number(enemy.x || 0);
+      const curDy = Number(target.y || 0) - Number(enemy.y || 0);
+      const curDist = Math.hypot(curDx, curDy);
+      if (curDist <= PLAYER_CONTACT_RADIUS) {
         const contactKey = `${id}|${targetSid}`;
         const lastHit = this.pveContactAt.get(contactKey) || 0;
         if (now - lastHit >= 440) {
           this.pveContactAt.set(contactKey, now);
           const dmg = ENEMY_CONTACT_DAMAGE[enemy.type] || ENEMY_CONTACT_DAMAGE.scout;
-          target.hp = Math.max(0, target.hp - dmg);
-          this.broadcast('pvp.damage', { fromSid: id, toSid: targetSid, damage: dmg, hp: target.hp });
-          if (target.hp <= 0 && this.state.phase !== 'ended') {
-            if (this.isCoopMode) {
-              const aliveCount = Array.from(this.state.players.values()).filter((p) => p.hp > 0).length;
-              if (aliveCount <= 0) {
-                this.finalizeMatch('', 'all_down');
-                return;
-              }
-            } else {
-              const winnerSid = this.clients.map((x) => x.sessionId).find((sid) => sid !== targetSid) || '';
-              this.finalizeMatch(winnerSid, 'hp_zero');
-              return;
-            }
+          if (this.damagePlayerFromEnemy(id, targetSid, dmg, now)) {
+            return;
           }
         }
       }
+    }
+    if (this.isCoopMode) {
+      if (this.updateCoopBossAttacks(now)) return;
     }
 
     this.pveSyncAccMs += dtMs;
@@ -2377,6 +2924,7 @@ class BattleSurvivalRoom extends Room {
       this.pveSpawnAccMs = 0;
       this.pveSyncAccMs = 0;
       this.pveSeq = 1;
+      this.pveBossAttacks = [];
       this.coopStage = 1;
       this.coopStageKills = 0;
       this.coopStageKillGoal = this.getCoopStageKillGoal(1);
@@ -2403,23 +2951,35 @@ class BattleSurvivalRoom extends Room {
     if (this.isCoopMode) this.pushCoopReviveStatus(true);
   }
 
-  getCoopStageKillGoal(stage) {
-    const s = Math.max(1, Math.floor(Number(stage) || 1));
-    return 18 + 5 * (s - 1);
+  resetCoopStageArena() {
+    this.pveEnemies.clear();
+    this.state.enemies.clear();
+    this.pveBossAttacks = [];
+    this.pveSpawnAccMs = 0;
+    this.pveSyncAccMs = 0;
+    this.pveContactAt.clear();
   }
 
-  onCoopEnemyKilled() {
+  onCoopEnemyKilled(enemyType = 'scout') {
     if (!this.isCoopMode) return;
     if (this.state.phase !== 'running') return;
-    this.coopStageKills += 1;
-    if (this.coopStageKills < this.coopStageKillGoal) {
-      this.broadcast('coop.stage', {
-        stage: this.coopStage,
-        stageKills: this.coopStageKills,
-        stageKillGoal: this.coopStageKillGoal
-      });
-      return;
+    const currentStage = Math.max(1, Math.floor(Number(this.coopStage || 1)));
+    const isBossStage = this.isCoopBossStage(currentStage);
+    if (isBossStage) {
+      if (String(enemyType || '') !== 'boss') return;
+      this.coopStageKills = this.coopStageKillGoal;
+    } else {
+      this.coopStageKills += 1;
+      if (this.coopStageKills < this.coopStageKillGoal) {
+        this.broadcast('coop.stage', {
+          stage: this.coopStage,
+          stageKills: this.coopStageKills,
+          stageKillGoal: this.coopStageKillGoal
+        });
+        return;
+      }
     }
+
     const clearedStage = this.coopStage;
     if (clearedStage >= COOP_FINAL_STAGE) {
       this.broadcast('coop.stage', {
@@ -2432,6 +2992,7 @@ class BattleSurvivalRoom extends Room {
       this.finalizeMatch('', 'stage_clear');
       return;
     }
+    this.resetCoopStageArena();
     this.coopStage += 1;
     this.coopStageKills = 0;
     this.coopStageKillGoal = this.getCoopStageKillGoal(this.coopStage);
@@ -2450,6 +3011,7 @@ class BattleSurvivalRoom extends Room {
     this.coopReviveStatusSig.clear();
     this.refreshCoopPartyState();
     this.pveEnemies.clear();
+    this.pveBossAttacks = [];
     this.state.enemies.clear();
     this.state.winnerSid = winnerSid || '';
     this.broadcast('match.end', { winnerSid: winnerSid || null, reason, mode: this.mode });

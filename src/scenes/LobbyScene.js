@@ -1641,7 +1641,7 @@ export default class LobbyScene extends Phaser.Scene {
     const y2 = y1 + rowGap;
     const y3 = y2 + rowGap;
     const y4 = y3 + rowGap;
-    mkModeBtn(y1, '스테이지 모드', '스테이지 30 클리어 목표', () => {
+    mkModeBtn(y1, '스테이지 모드', '스테이지 20 클리어 목표', () => {
       bgm.stop();
       this.scene.start('Game', {
         mode: 'survival',

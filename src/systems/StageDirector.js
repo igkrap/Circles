@@ -23,47 +23,53 @@ export default class StageDirector {
     this.specialDoneForStage = false;
 
     if (difficulty === 'EASY') {
-      this.baseKillGoal = 16;
-      this.baseIntervalMs = 2800;
-    } else if (difficulty === 'HARD') {
-      this.baseKillGoal = 22;
-      this.baseIntervalMs = 2350;
-    } else {
       this.baseKillGoal = 18;
-      this.baseIntervalMs = 2600;
+      this.baseIntervalMs = 2650;
+    } else if (difficulty === 'HARD') {
+      this.baseKillGoal = 24;
+      this.baseIntervalMs = 2320;
+    } else {
+      this.baseKillGoal = 20;
+      this.baseIntervalMs = 2480;
     }
   }
 
   getDifficultyScalar() {
-    // Stage 1 intentionally gentler.
-    return Math.min(1.8, 0.78 + 0.06 * (this.stage - 1));
+    // Sharper slope for 20-stage mode.
+    return Math.min(3.1, 0.84 + 0.11 * (this.stage - 1));
   }
 
   currentSpec() {
     const s = this.stage;
-    const killStep = this.difficulty === 'NORMAL' ? 5 : (this.difficulty === 'EASY' ? 4 : 6);
-    const intervalStep = this.difficulty === 'NORMAL' ? 100 : (this.difficulty === 'EASY' ? 80 : 120);
+    const killStep = this.difficulty === 'NORMAL' ? 7 : (this.difficulty === 'EASY' ? 6 : 8);
+    const intervalStep = this.difficulty === 'NORMAL' ? 120 : (this.difficulty === 'EASY' ? 105 : 140);
 
     const killGoal = this.baseKillGoal + killStep * (s - 1);
-    let waveIntervalMs = Math.max(1150, this.baseIntervalMs - intervalStep * (s - 1));
-    waveIntervalMs *= 0.9;
+    let waveIntervalMs = Math.max(620, this.baseIntervalMs - intervalStep * (s - 1));
+    waveIntervalMs *= 0.88;
 
-    let bmin = Math.max(1, Math.round(2 + 0.22 * (s - 1)));
-    let bmax = Math.max(bmin + 1, Math.round(3 + 0.28 * (s - 1)));
+    let bmin = Math.max(2, Math.round(2 + 0.32 * (s - 1)));
+    let bmax = Math.max(bmin + 1, Math.round(4 + 0.44 * (s - 1)));
 
     let patterns;
     if (s <= 2) {
       patterns = ['random', 'corners', 'random'];
     } else if (s <= 4) {
       patterns = ['corners', 'edge_stream', 'random'];
+    } else if (s <= 7) {
+      patterns = ['corners', 'edge_stream', 'ring', 'pincer'];
+    } else if (s <= 11) {
+      patterns = ['edge_stream', 'ring', 'pincer', 'box'];
+    } else if (s <= 15) {
+      patterns = ['edge_stream', 'ring', 'pincer', 'box', 'spiral'];
     } else {
-      patterns = ['corners', 'edge_stream', 'ring', 'random'];
+      patterns = ['ring', 'pincer', 'box', 'spiral', 'random'];
     }
 
     if (s % 5 === 0) {
-      waveIntervalMs *= 1.15;
-      bmin = Math.max(1, bmin - 1);
-      bmax = Math.max(bmin + 1, bmax - 1);
+      waveIntervalMs *= 1.2;
+      bmin = Math.max(1, bmin - 2);
+      bmax = Math.max(bmin + 1, bmax - 3);
     }
 
     return {
@@ -98,8 +104,8 @@ export default class StageDirector {
     if (this.specialDoneForStage || !scene?.queueEnemySpawn) return false;
     let spawned = false;
 
-    if (this.stage >= 4 && this.stage % 3 === 0) {
-      const count = 4 + Math.floor(this.stage / 3);
+    if (this.stage >= 3 && this.stage % 3 === 0) {
+      const count = 5 + Math.floor(this.stage * 0.5);
       for (let i = 0; i < count; i += 1) {
         const edge = Phaser.Utils.Array.GetRandom(['L', 'R', 'T', 'B']);
         const b = scene.physics.world.bounds;
@@ -123,12 +129,34 @@ export default class StageDirector {
       spawned = true;
     }
 
+    if (this.stage >= 6 && this.stage % 4 === 0) {
+      const b = scene.physics.world.bounds;
+      const c = 3 + Math.floor(this.stage / 4);
+      const cx = b.width * 0.5;
+      const cy = b.height * 0.5;
+      const rr = Phaser.Math.Between(110, 170);
+      for (let i = 0; i < c; i += 1) {
+        const a = (i / Math.max(1, c)) * Math.PI * 2;
+        scene.queueEnemySpawn(
+          Phaser.Math.Clamp(cx + Math.cos(a) * rr, 36, b.width - 36),
+          Phaser.Math.Clamp(cy + Math.sin(a) * rr, 36, b.height - 36),
+          EnemyType.TANK,
+          0.8
+        );
+      }
+      spawned = true;
+    }
+
     if (this.stage >= 5 && this.stage % 5 === 0) {
       const b = scene.physics.world.bounds;
       scene.queueEnemySpawn(b.width * 0.5, 70, EnemyType.MINIBOSS, 1.15);
       if (this.stage >= 10) {
         scene.queueEnemySpawn(b.width * 0.5 - 120, 100, EnemyType.ELITE, 1.0);
         scene.queueEnemySpawn(b.width * 0.5 + 120, 100, EnemyType.ELITE, 1.0);
+      }
+      if (this.stage >= 15) {
+        scene.queueEnemySpawn(b.width * 0.5 - 200, 118, EnemyType.TANK, 1.05);
+        scene.queueEnemySpawn(b.width * 0.5 + 200, 118, EnemyType.TANK, 1.05);
       }
       spawned = true;
     }
@@ -180,13 +208,18 @@ export default class StageDirector {
     const r = Math.random();
 
     let rr = r;
+    let miniP = 0;
+    if (stage >= 14) miniP = Math.min(0.06, 0.01 + 0.006 * (stage - 14));
+    if (rr < miniP) return EnemyType.MINIBOSS;
+    rr -= miniP;
+
     let eliteP = 0;
-    if (stage >= 2) eliteP = Math.min(0.18, 0.04 + 0.012 * (stage - 2));
+    if (stage >= 2) eliteP = Math.min(0.3, 0.05 + 0.016 * (stage - 2));
     if (rr < eliteP) return EnemyType.ELITE;
     rr -= eliteP;
 
     let tankP = 0;
-    if (stage >= 3) tankP = Math.min(0.14, 0.04 + 0.01 * (stage - 3));
+    if (stage >= 3) tankP = Math.min(0.24, 0.04 + 0.014 * (stage - 3));
     if (rr < tankP) return EnemyType.TANK;
 
     if (stage <= 1) {
@@ -197,18 +230,25 @@ export default class StageDirector {
       if (r < 0.85) return EnemyType.NORMAL;
       return EnemyType.TANK;
     }
-    if (stage <= 4) {
-      if (r < 0.34) return EnemyType.SCOUT;
-      if (r < 0.70) return EnemyType.NORMAL;
-      if (r < 0.88) return EnemyType.TANK;
+    if (stage <= 6) {
+      if (r < 0.3) return EnemyType.SCOUT;
+      if (r < 0.62) return EnemyType.NORMAL;
+      if (r < 0.86) return EnemyType.TANK;
       return EnemyType.ELITE;
     }
 
-    // Later stages: more elite/tank.
-    if (r < 0.24) return EnemyType.SCOUT;
-    if (r < 0.52) return EnemyType.NORMAL;
-    if (r < 0.76) return EnemyType.TANK;
-    return EnemyType.ELITE;
+    if (stage <= 12) {
+      if (r < 0.22) return EnemyType.SCOUT;
+      if (r < 0.45) return EnemyType.NORMAL;
+      if (r < 0.7) return EnemyType.TANK;
+      return EnemyType.ELITE;
+    }
+
+    if (r < 0.15) return EnemyType.SCOUT;
+    if (r < 0.36) return EnemyType.NORMAL;
+    if (r < 0.64) return EnemyType.TANK;
+    if (r < 0.92) return EnemyType.ELITE;
+    return EnemyType.MINIBOSS;
   }
 
   spawnWave(scene, spec) {
@@ -270,6 +310,64 @@ export default class StageDirector {
       }
     };
 
+    const spawnPincer = () => {
+      const horizontal = Math.random() < 0.5;
+      for (let i = 0; i < n; i += 1) {
+        const t = (i + 1) / (n + 1);
+        let x;
+        let y;
+        if (horizontal) {
+          x = i % 2 === 0 ? 24 : bounds.width - 24;
+          y = Phaser.Math.Clamp(bounds.height * t + Phaser.Math.Between(-32, 32), 50, bounds.height - 50);
+        } else {
+          x = Phaser.Math.Clamp(bounds.width * t + Phaser.Math.Between(-32, 32), 50, bounds.width - 50);
+          y = i % 2 === 0 ? 24 : bounds.height - 24;
+        }
+        scene.spawnEnemyAt(x, y, this.pickEnemyType(spec.stage));
+      }
+    };
+
+    const spawnBox = () => {
+      const halfW = Phaser.Math.Between(120, 220);
+      const halfH = Phaser.Math.Between(90, 170);
+      for (let i = 0; i < n; i += 1) {
+        const side = i % 4;
+        const lerp = (i + 1) / (n + 1);
+        let x;
+        let y;
+        if (side === 0) {
+          x = px - halfW + lerp * halfW * 2;
+          y = py - halfH;
+        } else if (side === 1) {
+          x = px + halfW;
+          y = py - halfH + lerp * halfH * 2;
+        } else if (side === 2) {
+          x = px + halfW - lerp * halfW * 2;
+          y = py + halfH;
+        } else {
+          x = px - halfW;
+          y = py + halfH - lerp * halfH * 2;
+        }
+        scene.spawnEnemyAt(
+          Phaser.Math.Clamp(x, 40, bounds.width - 40),
+          Phaser.Math.Clamp(y, 40, bounds.height - 40),
+          this.pickEnemyType(spec.stage)
+        );
+      }
+    };
+
+    const spawnSpiral = () => {
+      const startA = Phaser.Math.FloatBetween(0, Math.PI * 2);
+      for (let i = 0; i < n; i += 1) {
+        const t = i / Math.max(1, n - 1);
+        const a = startA + t * Math.PI * 2 * 1.35;
+        const radius = 70 + t * 190;
+        const x = Phaser.Math.Clamp(px + Math.cos(a) * radius, 40, bounds.width - 40);
+        const y = Phaser.Math.Clamp(py + Math.sin(a) * radius, 40, bounds.height - 40);
+        scene.spawnEnemyAt(x, y, this.pickEnemyType(spec.stage));
+      }
+    };
+
     const spawnRandom = () => {
       for (let i = 0; i < n; i += 1) {
         const x = Phaser.Math.Between(50, bounds.width - 50);
@@ -281,6 +379,9 @@ export default class StageDirector {
     if (pattern === 'corners') spawnCorner();
     else if (pattern === 'edge_stream') spawnEdgeStream();
     else if (pattern === 'ring') spawnRing();
+    else if (pattern === 'pincer') spawnPincer();
+    else if (pattern === 'box') spawnBox();
+    else if (pattern === 'spiral') spawnSpiral();
     else spawnRandom();
   }
 }

@@ -40,7 +40,7 @@ const SCORE_PER_TYPE = {
 
 const DEFENSE_CORE_REGEN_PER_SEC = 3;
 const DEFENSE_CORE_REGEN_DELAY_SEC = 2.5;
-const STAGE_MODE_FINAL_STAGE = 30;
+const STAGE_MODE_FINAL_STAGE = 20;
 const COOP_REVIVE_HOLD_MS = 4000;
 
 function getMmrTierLabel(mmr) {
@@ -164,7 +164,7 @@ export default class GameScene extends Phaser.Scene {
     this.pvpPingAccMs = 0;
     this.coopStage = 1;
     this.coopStageKills = 0;
-    this.coopStageKillGoal = 18;
+    this.coopStageKillGoal = 24;
     this.coopReviveState = this.makeDefaultCoopReviveState();
     this.coopReviveHoldIntent = false;
     this.coopReviveHoldSources = { pointer: false, key: false };
@@ -674,6 +674,82 @@ export default class GameScene extends Phaser.Scene {
         if (!e || !e.active || !e.netId) return;
         if (!seen.has(String(e.netId))) this.killEnemy(e, false);
       });
+    });
+    this.pvpRoom.onMessage('pve.boss.attack', (msg) => {
+      if (!this.isCoopMode) return;
+      const kind = String(msg?.kind || '');
+      if (!kind) return;
+      const durationSec = Math.max(0.08, Number(msg?.durationMs || 0) / 1000);
+      const safeWidth = Math.max(4, Math.floor(Number(msg?.width || 10)));
+      const lines = Array.isArray(msg?.lines) ? msg.lines : [];
+      if (kind === 'spawn') {
+        const x = Number(msg?.x);
+        const y = Number(msg?.y);
+        if (Number.isFinite(x) && Number.isFinite(y)) {
+          new FloatingText(this, x, y - 44, '보스 출현!', { fontSize: 22, color: '#ff3bd7' });
+        }
+        return;
+      }
+      if (kind === 'summon') {
+        const x = Number(msg?.x);
+        const y = Number(msg?.y);
+        const count = Math.max(1, Math.floor(Number(msg?.count || 0)));
+        if (Number.isFinite(x) && Number.isFinite(y)) {
+          new FloatingText(this, x, y - 34, `증원 소환 x${count}`, { fontSize: 17, color: '#ffd86f' });
+        }
+        return;
+      }
+      if (kind === 'dash_warn') {
+        const line = msg?.line || null;
+        if (!line) return;
+        const x1 = Number(line?.x1);
+        const y1 = Number(line?.y1);
+        const x2 = Number(line?.x2);
+        const y2 = Number(line?.y2);
+        if (!Number.isFinite(x1) || !Number.isFinite(y1) || !Number.isFinite(x2) || !Number.isFinite(y2)) return;
+        this.addLineWarning(x1, y1, x2, y2, durationSec, 0xffc857, safeWidth);
+        return;
+      }
+      if (kind === 'line_warn') {
+        lines.forEach((line) => {
+          const x1 = Number(line?.x1);
+          const y1 = Number(line?.y1);
+          const x2 = Number(line?.x2);
+          const y2 = Number(line?.y2);
+          if (!Number.isFinite(x1) || !Number.isFinite(y1) || !Number.isFinite(x2) || !Number.isFinite(y2)) return;
+          this.addLineWarning(x1, y1, x2, y2, durationSec, 0x7ea0ff, safeWidth);
+        });
+        return;
+      }
+      if (kind === 'laser') {
+        lines.forEach((line) => {
+          const x1 = Number(line?.x1);
+          const y1 = Number(line?.y1);
+          const x2 = Number(line?.x2);
+          const y2 = Number(line?.y2);
+          if (!Number.isFinite(x1) || !Number.isFinite(y1) || !Number.isFinite(x2) || !Number.isFinite(y2)) return;
+          // Server authoritative damage: client only renders beam VFX here.
+          this.addBossLaser(x1, y1, x2, y2, durationSec, safeWidth, 0);
+        });
+        return;
+      }
+      if (kind === 'nova_warn') {
+        const x = Number(msg?.x);
+        const y = Number(msg?.y);
+        const radius = Math.max(20, Number(msg?.radius || 180));
+        if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+        const ring = this.add.circle(x, y, radius, 0xff6fa3, 0.06).setDepth(2);
+        ring.setStrokeStyle(2, 0xff6fa3, 0.5);
+        this.tweens.add({
+          targets: ring,
+          alpha: { from: 0.06, to: 0.22 },
+          scale: { from: 0.92, to: 1.05 },
+          yoyo: true,
+          repeat: -1,
+          duration: 180
+        });
+        this.time.delayedCall(Math.max(100, Math.floor(durationSec * 1000)), () => ring.destroy());
+      }
     });
     this.pvpRoom.onMessage('pvp.level', (msg) => {
       const sid = String(msg?.sid || '');
@@ -2473,7 +2549,7 @@ export default class GameScene extends Phaser.Scene {
       this.ui.stage.setText(`스테이지 ${stage}`);
       this.ui.stageSub.setText(`${this.stageDirector.stageKills}/${spec.killGoal}`);
     }
-    const boss = !this.isPvpMode
+    const boss = (!this.isPvpMode || this.isCoopMode)
       ? this.enemies.getChildren().find((e) => e?.active && e.type === EnemyType.BOSS)
       : null;
 
@@ -2496,7 +2572,7 @@ export default class GameScene extends Phaser.Scene {
       this.ui.ping.setText('');
     }
 
-    if (!this.isPvpMode) {
+    if (!this.isPvpMode || this.isCoopMode) {
       if (boss) {
         const ratioBoss = boss.maxHp > 0 ? Phaser.Math.Clamp(boss.hp / boss.maxHp, 0, 1) : 0;
         this.ui.bossHpBg.setVisible(true);
@@ -3957,29 +4033,95 @@ export default class GameScene extends Phaser.Scene {
         dirX: 0,
         dirY: 1,
         dashT: 0,
-        laserT: 0
+        laserT: 0,
+        comboLeft: 0
       };
     }
     const s = e._bossState;
+    const isBoss = e.type === EnemyType.BOSS;
+    const rotate = (vx, vy, angle) => {
+      const c = Math.cos(angle);
+      const si = Math.sin(angle);
+      return {
+        x: vx * c - vy * si,
+        y: vx * si + vy * c
+      };
+    };
+    const refreshAimToPlayer = () => {
+      const vx = this.player.x - e.x;
+      const vy = this.player.y - e.y;
+      const len = Math.hypot(vx, vy) || 1;
+      s.dirX = vx / len;
+      s.dirY = vy / len;
+    };
+    const addFanWarning = (delaySec, spreadRad = 0.28, count = 3, color = 0x7ea0ff, width = 8) => {
+      const mid = Math.floor(count * 0.5);
+      for (let i = 0; i < count; i += 1) {
+        const offset = (i - mid) * spreadRad;
+        const d = rotate(s.dirX, s.dirY, offset);
+        const end = this.rayToBounds(e.x, e.y, d.x, d.y);
+        this.addLineWarning(e.x, e.y, end.x, end.y, delaySec, color, width);
+      }
+    };
+    const fireFanLaser = (count = 3, spreadRad = 0.24, width = 18, damage = 24, durationSec = 0.62) => {
+      const mid = Math.floor(count * 0.5);
+      for (let i = 0; i < count; i += 1) {
+        const offset = (i - mid) * spreadRad;
+        const d = rotate(s.dirX, s.dirY, offset);
+        const end = this.rayToBounds(e.x, e.y, d.x, d.y);
+        this.addBossLaser(e.x, e.y, end.x, end.y, durationSec, width, damage);
+      }
+    };
+    const fireNovaLaser = (rays = 8, width = 14, damage = 18, durationSec = 0.5) => {
+      for (let i = 0; i < rays; i += 1) {
+        const a = (i / rays) * Math.PI * 2;
+        const d = { x: Math.cos(a), y: Math.sin(a) };
+        const end = this.rayToBounds(e.x, e.y, d.x, d.y);
+        this.addBossLaser(e.x, e.y, end.x, end.y, durationSec, width, damage);
+      }
+    };
 
     if (s.phase === 'idle') {
       s.cd = Math.max(0, s.cd - dtSec);
       if (s.cd <= 0) {
-        const vx = this.player.x - e.x;
-        const vy = this.player.y - e.y;
-        const len = Math.hypot(vx, vy) || 1;
-        s.dirX = vx / len;
-        s.dirY = vy / len;
-        const wantDash = Math.random() < 0.55;
-        const end = this.rayToBounds(e.x, e.y, s.dirX, s.dirY);
-        if (wantDash) {
+        refreshAimToPlayer();
+        const roll = Math.random();
+        if (roll < (isBoss ? 0.32 : 0.5)) {
           s.phase = 'dash_warn';
-          s.phaseT = 0.65;
-          this.addLineWarning(e.x, e.y, end.x, end.y, 0.65, 0xffc857, 10);
+          s.phaseT = isBoss ? 0.52 : 0.62;
+          s.comboLeft = isBoss ? Phaser.Math.Between(2, 3) : 1;
+          const end = this.rayToBounds(e.x, e.y, s.dirX, s.dirY);
+          this.addLineWarning(e.x, e.y, end.x, end.y, s.phaseT, 0xffc857, isBoss ? 12 : 10);
+          return true;
+        }
+        if (roll < (isBoss ? 0.63 : 0.83)) {
+          s.phase = 'laser_fan_warn';
+          s.phaseT = isBoss ? 0.72 : 0.78;
+          addFanWarning(s.phaseT, isBoss ? 0.25 : 0.3, isBoss ? 5 : 3, 0x7ea0ff, isBoss ? 9 : 8);
+          return true;
+        }
+        if (roll < (isBoss ? 0.85 : 1.0)) {
+          s.phase = 'nova_warn';
+          s.phaseT = isBoss ? 0.7 : 0.76;
+          for (let i = 0; i < (isBoss ? 10 : 8); i += 1) {
+            const a = (i / (isBoss ? 10 : 8)) * Math.PI * 2;
+            const end = this.rayToBounds(e.x, e.y, Math.cos(a), Math.sin(a));
+            this.addLineWarning(e.x, e.y, end.x, end.y, s.phaseT, 0xff6fa3, isBoss ? 7 : 6);
+          }
+          return true;
         } else {
-          s.phase = 'laser_warn';
-          s.phaseT = 0.75;
-          this.addLineWarning(e.x, e.y, end.x, end.y, 0.75, 0x7ea0ff, 8);
+          if (isBoss) {
+            const addCount = Phaser.Math.Between(2, 3);
+            for (let i = 0; i < addCount; i += 1) {
+              const a = (i / addCount) * Math.PI * 2 + Phaser.Math.FloatBetween(-0.35, 0.35);
+              const radius = Phaser.Math.Between(92, 140);
+              const sx = Phaser.Math.Clamp(e.x + Math.cos(a) * radius, 40, this.physics.world.bounds.width - 40);
+              const sy = Phaser.Math.Clamp(e.y + Math.sin(a) * radius, 40, this.physics.world.bounds.height - 40);
+              this.queueEnemySpawn(sx, sy, Math.random() < 0.5 ? EnemyType.ELITE : EnemyType.TANK, 0.5 + i * 0.12);
+            }
+            s.cd = 1.6;
+            return true;
+          }
         }
       }
       return false;
@@ -3990,14 +4132,14 @@ export default class GameScene extends Phaser.Scene {
       e.body.setVelocity(0, 0);
       if (s.phaseT <= 0) {
         s.phase = 'dash';
-        s.dashT = 0.33;
-        s.cd = 2.4;
+        s.dashT = isBoss ? 0.28 : 0.33;
+        s.cd = isBoss ? 1.8 : 2.2;
       }
       return true;
     }
 
     if (s.phase === 'dash') {
-      const dashSpeed = 760 * this.enemyPace;
+      const dashSpeed = (isBoss ? 880 : 760) * this.enemyPace;
       e.x += s.dirX * dashSpeed * dtSec;
       e.y += s.dirY * dashSpeed * dtSec;
       e.body.setVelocity(0, 0);
@@ -4010,21 +4152,48 @@ export default class GameScene extends Phaser.Scene {
       if (e.y < 24) { e.y = 24; hitWall = true; }
       if (e.y > b.height - 24) { e.y = b.height - 24; hitWall = true; }
       if (hitWall || s.dashT <= 0) {
-        s.phase = 'idle';
-        s.cd = 2.1;
+        if (s.comboLeft > 1) {
+          s.comboLeft -= 1;
+          refreshAimToPlayer();
+          s.phase = 'dash_warn';
+          s.phaseT = isBoss ? 0.28 : 0.4;
+          const end = this.rayToBounds(e.x, e.y, s.dirX, s.dirY);
+          this.addLineWarning(e.x, e.y, end.x, end.y, s.phaseT, 0xffc857, isBoss ? 12 : 10);
+        } else {
+          s.comboLeft = 0;
+          s.phase = 'idle';
+          s.cd = isBoss ? 1.5 : 1.9;
+        }
       }
       return true;
     }
 
-    if (s.phase === 'laser_warn') {
+    if (s.phase === 'laser_fan_warn') {
       s.phaseT -= dtSec;
       e.body.setVelocity(0, 0);
       if (s.phaseT <= 0) {
         s.phase = 'laser';
-        s.laserT = 0.55;
-        s.cd = 2.6;
-        const end = this.rayToBounds(e.x, e.y, s.dirX, s.dirY);
-        this.addBossLaser(e.x, e.y, end.x, end.y, 0.62, 18, e.type === EnemyType.BOSS ? 30 : 22);
+        s.laserT = isBoss ? 0.72 : 0.58;
+        s.cd = isBoss ? 2.1 : 2.5;
+        fireFanLaser(
+          isBoss ? 5 : 3,
+          isBoss ? 0.22 : 0.3,
+          isBoss ? 18 : 16,
+          isBoss ? 32 : 22,
+          isBoss ? 0.7 : 0.58
+        );
+      }
+      return true;
+    }
+
+    if (s.phase === 'nova_warn') {
+      s.phaseT -= dtSec;
+      e.body.setVelocity(0, 0);
+      if (s.phaseT <= 0) {
+        s.phase = 'nova';
+        s.laserT = isBoss ? 0.56 : 0.5;
+        s.cd = isBoss ? 2.3 : 2.7;
+        fireNovaLaser(isBoss ? 10 : 8, isBoss ? 14 : 12, isBoss ? 24 : 18, isBoss ? 0.6 : 0.52);
       }
       return true;
     }
@@ -4034,7 +4203,17 @@ export default class GameScene extends Phaser.Scene {
       e.body.setVelocity(0, 0);
       if (s.laserT <= 0) {
         s.phase = 'idle';
-        s.cd = 2.2;
+        s.cd = isBoss ? 1.7 : 2.2;
+      }
+      return true;
+    }
+
+    if (s.phase === 'nova') {
+      s.laserT -= dtSec;
+      e.body.setVelocity(0, 0);
+      if (s.laserT <= 0) {
+        s.phase = 'idle';
+        s.cd = isBoss ? 1.9 : 2.4;
       }
       return true;
     }
@@ -4206,7 +4385,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   getEnemySoftCap() {
-    return Math.min(36, 14 + 2 * this.stageDirector.stage);
+    return Math.min(64, 16 + Math.floor(2.4 * this.stageDirector.stage));
   }
 
   onStageClear(stage) {
@@ -4220,9 +4399,10 @@ export default class GameScene extends Phaser.Scene {
     const x = Phaser.Math.Between(b.width * 0.2, b.width * 0.8);
     const y = Phaser.Math.Between(b.height * 0.2, b.height * 0.8);
 
+    const stageNow = Math.max(1, Math.floor(Number(this.stageDirector?.stage || 1)));
     const d = this.stageDirector.getDifficultyScalar();
-    const hp = Math.floor(520 * d);
-    const speed = 100 * d;
+    const hp = Math.floor(560 * d * (1 + stageNow * 0.03));
+    const speed = Math.max(94, 96 + stageNow * 3.4);
 
     const boss = new Enemy(this, x, y, EnemyType.BOSS, hp, speed);
     boss.setScale(1.22);

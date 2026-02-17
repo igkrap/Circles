@@ -69,7 +69,7 @@ export default class GameOverScene extends Phaser.Scene {
 
     const reasonText = this.reason === 'core_destroyed'
       ? '중앙 코어가 파괴되었습니다'
-      : (this.reason === 'stage_clear' ? '스테이지 30을 클리어했습니다' : '플레이어가 쓰러졌습니다');
+      : (this.reason === 'stage_clear' ? `스테이지 ${Math.max(1, Math.floor(Number(this.finalStage || 1)))}을 클리어했습니다` : '플레이어가 쓰러졌습니다');
     const subtitle = this.add.text(cardX, titleY + 42, reasonText, {
       fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
       fontSize: '16px',
