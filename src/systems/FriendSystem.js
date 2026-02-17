@@ -87,10 +87,29 @@ async function respondInvite(session, inviteId, accept = true) {
   return await apiPost(session, `/friends/invites/${encodeURIComponent(String(inviteId || ''))}/respond`, { accept: !!accept });
 }
 
-async function getChat(session, friendUserId, limit = 60) {
+async function getChat(session, friendUserId, options = 60) {
   const safeId = encodeURIComponent(String(friendUserId || ''));
-  const safeLimit = Math.max(1, Math.min(200, Math.floor(Number(limit) || 60)));
-  return await apiGet(session, `/friends/chat/${safeId}?limit=${safeLimit}`);
+  let limit = 60;
+  let before = 0;
+  let after = 0;
+  let day = '';
+  if (typeof options === 'number') {
+    limit = options;
+  } else if (options && typeof options === 'object') {
+    limit = options.limit ?? limit;
+    before = options.before ?? before;
+    after = options.after ?? after;
+    day = String(options.day || '').trim();
+  }
+  const safeLimit = Math.max(1, Math.min(300, Math.floor(Number(limit) || 60)));
+  const qs = new URLSearchParams();
+  qs.set('limit', String(safeLimit));
+  const safeBefore = Math.floor(Number(before) || 0);
+  const safeAfter = Math.floor(Number(after) || 0);
+  if (safeBefore > 0) qs.set('before', String(safeBefore));
+  if (safeAfter > 0) qs.set('after', String(safeAfter));
+  if (day) qs.set('day', day);
+  return await apiGet(session, `/friends/chat/${safeId}?${qs.toString()}`);
 }
 
 async function sendChat(session, friendUserId, message) {

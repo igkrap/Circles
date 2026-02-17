@@ -246,8 +246,68 @@ export default class LobbyScene extends Phaser.Scene {
     let inviteScrollOffset = 0;
     let reqScrollOffset = 0;
     let chatScrollOffset = 0;
+    let chatOldestLoadedTs = 0;
+    let chatNewestLoadedTs = 0;
+    let chatNoOlderHistory = false;
+    let chatFetchInFlight = false;
+    let chatLoadingOlder = false;
+    let chatLoadVersion = 0;
     let friendPanelPollTimer = null;
     const clampOffset = (value, max) => Phaser.Math.Clamp(Math.floor(Number(value || 0)), 0, Math.max(0, Math.floor(Number(max || 0))));
+    const getChatRowTs = (row) => Math.max(0, Math.floor(Number(row?.created_at || row?.createdAt || row?.timestamp || row?.ts || 0)));
+    const toLocalDayKey = (ts) => {
+      const n = Math.floor(Number(ts) || 0);
+      if (n <= 0) return '';
+      const d = new Date(n);
+      if (Number.isNaN(d.getTime())) return '';
+      const yyyy = String(d.getFullYear());
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      return `${yyyy}-${mm}-${dd}`;
+    };
+    const normalizeChatRows = (rows) => {
+      const input = Array.isArray(rows) ? rows : [];
+      const byKey = new Map();
+      for (const row of input) {
+        if (!row) continue;
+        const ts = getChatRowTs(row);
+        if (!ts) continue;
+        const idKey = Number.isFinite(Number(row?.id)) ? `id:${Number(row.id)}` : `ts:${ts}:${String(row?.from_user_id || '')}:${String(row?.message || '')}`;
+        byKey.set(idKey, row);
+      }
+      const out = Array.from(byKey.values());
+      out.sort((a, b) => {
+        const ta = getChatRowTs(a);
+        const tb = getChatRowTs(b);
+        if (ta !== tb) return ta - tb;
+        return Number(a?.id || 0) - Number(b?.id || 0);
+      });
+      return out;
+    };
+    const refreshChatTsBounds = () => {
+      if (!chatCacheRows.length) {
+        chatOldestLoadedTs = 0;
+        chatNewestLoadedTs = 0;
+        return;
+      }
+      chatOldestLoadedTs = getChatRowTs(chatCacheRows[0]);
+      chatNewestLoadedTs = getChatRowTs(chatCacheRows[chatCacheRows.length - 1]);
+    };
+    const resetChatPagingState = () => {
+      if (chatRows.length > 0) {
+        clearChatRows();
+      }
+      chatCacheRows = [];
+      chatCacheSig = '';
+      chatScrollOffset = 0;
+      chatOldestLoadedTs = 0;
+      chatNewestLoadedTs = 0;
+      chatNoOlderHistory = false;
+      chatFetchInFlight = false;
+      chatLoadingOlder = false;
+      chatLoadVersion += 1;
+    };
+    const mergeChatRows = (baseRows, incomingRows) => normalizeChatRows([...(Array.isArray(baseRows) ? baseRows : []), ...(Array.isArray(incomingRows) ? incomingRows : [])]);
     const formatChatTimestamp = (raw) => {
       if (!raw) return '';
       const d = new Date(raw);
@@ -313,11 +373,13 @@ export default class LobbyScene extends Phaser.Scene {
     const renderChatRowsFromCache = () => {
       if (!friendPanel) return;
       const rows = Array.isArray(chatCacheRows) ? chatCacheRows : [];
-      const scrollMax = Math.max(0, rows.length - 1);
+      const visibleRows = Math.max(10, Math.floor((Number(friendPanel.chatBox?.height || 160) - 12) / 18));
+      const scrollMax = Math.max(0, rows.length - visibleRows);
       chatScrollOffset = clampOffset(chatScrollOffset, scrollMax);
       friendPanel.chatScrollMax = scrollMax;
-      const end = rows.length - chatScrollOffset;
-      const chatRowsSource = rows.slice(Math.max(0, end - 32), end);
+      const end = Math.max(0, rows.length - chatScrollOffset);
+      const start = Math.max(0, end - visibleRows);
+      const chatRowsSource = rows.slice(start, end);
       clearChatRows();
       if (!selectedChatFriend?.user_id) {
         friendPanel.chatHintText?.setText('채팅할 친구를 선택하세요.');
@@ -385,26 +447,119 @@ export default class LobbyScene extends Phaser.Scene {
         friendPanel.root.add([track, thumb]);
         chatRows.push(track, thumb);
       }
-      friendPanel.chatHintText?.setText(rows.length > 0 ? '' : '메시지가 없습니다.');
+      if (rows.length > 0) {
+        friendPanel.chatHintText?.setText('');
+      } else if (chatLoadingOlder) {
+        friendPanel.chatHintText?.setText('이전 대화 불러오는 중...');
+      } else {
+        friendPanel.chatHintText?.setText('메시지가 없습니다.');
+      }
     };
-    const loadFriendChat = async () => {
-      if (!authSession?.token || !selectedChatFriend?.user_id) {
+    const loadFriendChat = async ({ mode = 'poll' } = {}) => {
+      const friendUserId = String(selectedChatFriend?.user_id || '');
+      const loadVersion = chatLoadVersion;
+      const isStale = () => loadVersion !== chatLoadVersion || String(selectedChatFriend?.user_id || '') !== friendUserId;
+      if (!authSession?.token || !friendUserId) {
         friendPanel.chatScrollMax = 0;
-        chatCacheRows = [];
-        chatCacheSig = '';
+        resetChatPagingState();
         friendPanel.chatHintText?.setText('채팅할 친구를 선택하세요.');
         clearChatRows();
         setChatUiVisible(false);
         return;
       }
+      if (mode === 'older') {
+        if (chatLoadingOlder || chatFetchInFlight) return;
+        if (chatNoOlderHistory || !chatOldestLoadedTs) return;
+        chatLoadingOlder = true;
+        try {
+          const out = await FriendSystem.getChat(authSession, friendUserId, { limit: 180, before: chatOldestLoadedTs });
+          if (isStale()) return;
+          const incomingRows = normalizeChatRows(out?.rows);
+          if (!incomingRows.length) {
+            chatNoOlderHistory = true;
+            return;
+          }
+          const prevLen = chatCacheRows.length;
+          chatCacheRows = mergeChatRows(chatCacheRows, incomingRows);
+          const added = Math.max(0, chatCacheRows.length - prevLen);
+          if (added <= 0) {
+            chatNoOlderHistory = true;
+            return;
+          }
+          chatNoOlderHistory = false;
+          refreshChatTsBounds();
+          const nextSig = buildChatSig(chatCacheRows);
+          if (nextSig !== chatCacheSig || chatRows.length === 0) {
+            renderChatRowsFromCache();
+          }
+          chatCacheSig = nextSig;
+        } catch (err) {
+          if (handleFriendAuthError(err)) return;
+          friendPanel?.statusText?.setText(`채팅 이력 로드 실패: ${String(err?.message || err).slice(0, 60)}`);
+        } finally {
+          chatLoadingOlder = false;
+        }
+        return;
+      }
+      if (chatFetchInFlight || chatLoadingOlder) return;
+      chatFetchInFlight = true;
       try {
-        await FriendSystem.markChatRead(authSession, selectedChatFriend.user_id);
-        const out = await FriendSystem.getChat(authSession, selectedChatFriend.user_id, 180);
-        const nextRows = Array.isArray(out?.rows) ? out.rows : [];
-        const nextSig = buildChatSig(nextRows);
-        const changed = nextSig !== chatCacheSig;
-        chatCacheRows = nextRows;
-        if (changed || chatRows.length === 0) {
+        if (mode === 'initial') {
+          await FriendSystem.markChatRead(authSession, friendUserId);
+          const todayDayKey = toLocalDayKey(Date.now());
+          let rows = [];
+          if (todayDayKey) {
+            const outToday = await FriendSystem.getChat(authSession, friendUserId, { limit: 300, day: todayDayKey });
+            if (isStale()) return;
+            rows = normalizeChatRows(outToday?.rows);
+          }
+          if (rows.length === 0) {
+            const outLatest = await FriendSystem.getChat(authSession, friendUserId, { limit: 180 });
+            if (isStale()) return;
+            rows = normalizeChatRows(outLatest?.rows);
+          }
+          chatCacheRows = rows;
+          chatScrollOffset = 0;
+          refreshChatTsBounds();
+          chatNoOlderHistory = false;
+          chatCacheSig = buildChatSig(chatCacheRows);
+          renderChatRowsFromCache();
+          void refreshFriendBadge();
+          return;
+        }
+        if (!chatNewestLoadedTs) {
+          const todayDayKey = toLocalDayKey(Date.now());
+          if (!todayDayKey) return;
+          const outToday = await FriendSystem.getChat(authSession, friendUserId, { limit: 300, day: todayDayKey });
+          if (isStale()) return;
+          const todayRows = normalizeChatRows(outToday?.rows);
+          if (!todayRows.length) return;
+          chatCacheRows = todayRows;
+          chatScrollOffset = 0;
+          refreshChatTsBounds();
+          chatNoOlderHistory = false;
+          chatCacheSig = buildChatSig(chatCacheRows);
+          renderChatRowsFromCache();
+          await FriendSystem.markChatRead(authSession, friendUserId);
+          void refreshFriendBadge();
+          return;
+        }
+        const out = await FriendSystem.getChat(authSession, friendUserId, { limit: 120, after: chatNewestLoadedTs });
+        if (isStale()) return;
+        const incomingRows = normalizeChatRows(out?.rows);
+        if (incomingRows.length > 0) {
+          const wasAtBottom = chatScrollOffset === 0;
+          const prevLen = chatCacheRows.length;
+          chatCacheRows = mergeChatRows(chatCacheRows, incomingRows);
+          const added = Math.max(0, chatCacheRows.length - prevLen);
+          refreshChatTsBounds();
+          if (!wasAtBottom && added > 0) {
+            chatScrollOffset += added;
+          }
+          await FriendSystem.markChatRead(authSession, friendUserId);
+        }
+        const nextSig = buildChatSig(chatCacheRows);
+        if (nextSig !== chatCacheSig || chatRows.length === 0) {
           renderChatRowsFromCache();
         }
         chatCacheSig = nextSig;
@@ -412,6 +567,8 @@ export default class LobbyScene extends Phaser.Scene {
       } catch (err) {
         if (handleFriendAuthError(err)) return;
         friendPanel?.statusText?.setText(`채팅 로드 실패: ${String(err?.message || err).slice(0, 60)}`);
+      } finally {
+        chatFetchInFlight = false;
       }
     };
     const sendFriendChat = async () => {
@@ -423,12 +580,24 @@ export default class LobbyScene extends Phaser.Scene {
       }
       if (!message) return;
       try {
-        await FriendSystem.sendChat(authSession, selectedChatFriend.user_id, message);
+        const friendUserId = String(selectedChatFriend.user_id);
+        const out = await FriendSystem.sendChat(authSession, friendUserId, message);
+        if (String(selectedChatFriend?.user_id || '') !== friendUserId) return;
         chatInputValue = '';
         chatScrollOffset = 0;
         friendPanel.chatInputText?.setText('메시지 입력');
-        await loadFriendChat();
-        await loadFriendPanelData();
+        const sentRow = out?.row ? [out.row] : [];
+        if (sentRow.length > 0) {
+          chatCacheRows = mergeChatRows(chatCacheRows, sentRow);
+          refreshChatTsBounds();
+          chatCacheSig = buildChatSig(chatCacheRows);
+          renderChatRowsFromCache();
+        } else {
+          await loadFriendChat({ mode: 'poll' });
+        }
+        await FriendSystem.markChatRead(authSession, friendUserId);
+        void refreshFriendBadge();
+        void loadFriendPanelData();
       } catch (err) {
         if (handleFriendAuthError(err)) return;
         friendPanel?.statusText?.setText(`채팅 전송 실패: ${String(err?.message || err).slice(0, 60)}`);
@@ -486,9 +655,9 @@ export default class LobbyScene extends Phaser.Scene {
         await FriendSystem.removeFriend(authSession, row.user_id);
         if (selectedChatFriend?.user_id && String(selectedChatFriend.user_id) === String(row.user_id)) {
           selectedChatFriend = null;
-          chatCacheRows = [];
-          chatCacheSig = '';
+          resetChatPagingState();
           clearChatRows();
+          friendPanel?.chatHintText?.setText('채팅할 친구를 선택하세요.');
           setChatUiVisible(false);
         }
         friendPanel?.statusText?.setText('친구를 삭제했습니다.');
@@ -657,13 +826,12 @@ export default class LobbyScene extends Phaser.Scene {
         const btnBaseX = friendRowsArea.x + friendRowsArea.w - 150;
         mkBtn(btnBaseX + 24, fy + 12, 48, 20, '채팅', () => {
           selectedChatFriend = f;
-          chatScrollOffset = 0;
-          chatCacheSig = '';
+          resetChatPagingState();
           activeInputTarget = '';
           chatInputValue = '';
           friendPanel.chatInputText?.setText('메시지 입력');
           renderFriendPanelRows();
-          void loadFriendChat();
+          void loadFriendChat({ mode: 'initial' });
         });
         mkBtn(btnBaseX + 76, fy + 12, 44, 20, '초대', () => void inviteFriendFromRow(f));
         mkBtn(btnBaseX + 124, fy + 12, 44, 20, '삭제', () => void removeFriendFromRow(f));
@@ -824,8 +992,7 @@ export default class LobbyScene extends Phaser.Scene {
           const stillExists = friendData.friends.find((f) => String(f?.user_id || '') === String(selectedChatFriend.user_id));
           if (!stillExists) {
             selectedChatFriend = null;
-            chatCacheRows = [];
-            chatCacheSig = '';
+            resetChatPagingState();
             clearChatRows();
             friendPanel?.chatHintText?.setText('채팅할 친구를 선택하세요.');
             setChatUiVisible(false);
@@ -916,6 +1083,9 @@ export default class LobbyScene extends Phaser.Scene {
       closeBtnBg.on('pointerout', () => closeBtnBg.setFillStyle(0x5b3143, 0.98));
       closeBtnBg.on('pointerdown', () => {
         activeInputTarget = '';
+        chatLoadVersion += 1;
+        chatFetchInFlight = false;
+        chatLoadingOlder = false;
         stopFriendPanelPolling();
         root.setVisible(false);
       });
@@ -1084,10 +1254,15 @@ export default class LobbyScene extends Phaser.Scene {
           return;
         }
         if (inArea(px, py, areas.chat) && selectedChatFriend?.user_id) {
-          const next = clampOffset(chatScrollOffset + step, areas.chat.maxOffset);
-          if (next === chatScrollOffset) return;
-          chatScrollOffset = next;
-          renderChatRowsFromCache();
+          const maxOffset = Math.max(0, Math.floor(Number(areas.chat?.maxOffset || 0)));
+          const next = clampOffset(chatScrollOffset + step, maxOffset);
+          if (next !== chatScrollOffset) {
+            chatScrollOffset = next;
+            renderChatRowsFromCache();
+          }
+          if (step > 0 && next >= maxOffset) {
+            void loadFriendChat({ mode: 'older' });
+          }
         }
       };
       this.input.keyboard.on('keydown', friendInputKeyHandler);
@@ -1109,9 +1284,7 @@ export default class LobbyScene extends Phaser.Scene {
       friendScrollOffset = 0;
       inviteScrollOffset = 0;
       reqScrollOffset = 0;
-      chatScrollOffset = 0;
-      chatCacheRows = [];
-      chatCacheSig = '';
+      resetChatPagingState();
       friendPanelDataSig = '';
       selectedChatFriend = null;
       friendPanel.inputText.setText('태그 입력');

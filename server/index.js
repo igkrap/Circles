@@ -245,6 +245,10 @@ CREATE TABLE IF NOT EXISTS friend_chat_reads (
   last_read_at INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (user_id, friend_user_id)
 );
+CREATE INDEX IF NOT EXISTS idx_friend_messages_from_to_created
+  ON friend_messages (from_user_id, to_user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_friend_messages_to_from_created
+  ON friend_messages (to_user_id, from_user_id, created_at);
 `);
 migrateLegacyProgressDbIfNeeded();
 
@@ -435,7 +439,7 @@ const stInsertFriendMessage = appDb.prepare(`
   INSERT INTO friend_messages (from_user_id, to_user_id, message, created_at)
   VALUES (?, ?, ?, ?)
 `);
-const stGetFriendConversation = appDb.prepare(`
+const stGetFriendConversationLatest = appDb.prepare(`
   SELECT m.id, m.from_user_id, m.to_user_id, m.message, m.created_at,
          fp.name AS from_name, fp.tag AS from_tag,
          tp.name AS to_name, tp.tag AS to_tag
@@ -444,7 +448,53 @@ const stGetFriendConversation = appDb.prepare(`
   JOIN user_profile tp ON tp.user_id = m.to_user_id
   WHERE (m.from_user_id = ? AND m.to_user_id = ?)
      OR (m.from_user_id = ? AND m.to_user_id = ?)
-  ORDER BY m.created_at DESC
+  ORDER BY m.created_at DESC, m.id DESC
+  LIMIT ?
+`);
+const stGetFriendConversationBefore = appDb.prepare(`
+  SELECT m.id, m.from_user_id, m.to_user_id, m.message, m.created_at,
+         fp.name AS from_name, fp.tag AS from_tag,
+         tp.name AS to_name, tp.tag AS to_tag
+  FROM friend_messages m
+  JOIN user_profile fp ON fp.user_id = m.from_user_id
+  JOIN user_profile tp ON tp.user_id = m.to_user_id
+  WHERE (
+    (m.from_user_id = ? AND m.to_user_id = ?)
+    OR (m.from_user_id = ? AND m.to_user_id = ?)
+  )
+    AND m.created_at < ?
+  ORDER BY m.created_at DESC, m.id DESC
+  LIMIT ?
+`);
+const stGetFriendConversationAfter = appDb.prepare(`
+  SELECT m.id, m.from_user_id, m.to_user_id, m.message, m.created_at,
+         fp.name AS from_name, fp.tag AS from_tag,
+         tp.name AS to_name, tp.tag AS to_tag
+  FROM friend_messages m
+  JOIN user_profile fp ON fp.user_id = m.from_user_id
+  JOIN user_profile tp ON tp.user_id = m.to_user_id
+  WHERE (
+    (m.from_user_id = ? AND m.to_user_id = ?)
+    OR (m.from_user_id = ? AND m.to_user_id = ?)
+  )
+    AND m.created_at > ?
+  ORDER BY m.created_at ASC, m.id ASC
+  LIMIT ?
+`);
+const stGetFriendConversationByRange = appDb.prepare(`
+  SELECT m.id, m.from_user_id, m.to_user_id, m.message, m.created_at,
+         fp.name AS from_name, fp.tag AS from_tag,
+         tp.name AS to_name, tp.tag AS to_tag
+  FROM friend_messages m
+  JOIN user_profile fp ON fp.user_id = m.from_user_id
+  JOIN user_profile tp ON tp.user_id = m.to_user_id
+  WHERE (
+    (m.from_user_id = ? AND m.to_user_id = ?)
+    OR (m.from_user_id = ? AND m.to_user_id = ?)
+  )
+    AND m.created_at >= ?
+    AND m.created_at < ?
+  ORDER BY m.created_at DESC, m.id DESC
   LIMIT ?
 `);
 const stUpsertFriendChatRead = appDb.prepare(`
@@ -609,6 +659,24 @@ function sanitizeChatMessage(raw) {
   const text = String(raw ?? '').replace(/\s+/g, ' ').trim();
   if (!text) return '';
   return text.slice(0, 240);
+}
+
+function parseChatDayRange(dayText) {
+  const src = String(dayText || '').trim();
+  const m = src.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  const year = Number(m[1]);
+  const month = Number(m[2]);
+  const day = Number(m[3]);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null;
+  const startDate = new Date(year, month - 1, day, 0, 0, 0, 0);
+  if (Number.isNaN(startDate.getTime())) return null;
+  if (startDate.getFullYear() !== year || startDate.getMonth() !== month - 1 || startDate.getDate() !== day) return null;
+  const endDate = new Date(year, month - 1, day + 1, 0, 0, 0, 0);
+  return {
+    startMs: startDate.getTime(),
+    endMs: endDate.getTime()
+  };
 }
 
 function ensurePvpPlayer(userId, name) {
@@ -2731,11 +2799,41 @@ const gameServer = new Server({
         ensureUserProfile(userId, name);
         const friendUserId = String(req.params?.friendUserId || '').trim();
         const limitRaw = Number(req.query?.limit || 60);
-        const limit = Math.max(1, Math.min(200, Math.floor(limitRaw)));
+        const limit = Math.max(1, Math.min(300, Math.floor(limitRaw)));
+        const day = String(req.query?.day || '').trim();
+        const before = Math.max(0, Math.floor(Number(req.query?.before || 0)));
+        const after = Math.max(0, Math.floor(Number(req.query?.after || 0)));
         if (!friendUserId) return res.status(400).json({ error: 'friend_user_id_required' });
         if (!areFriends(userId, friendUserId)) return res.status(403).json({ error: 'not_friends' });
         stUpsertFriendChatRead.run(userId, friendUserId, Date.now());
-        const rows = stGetFriendConversation.all(userId, friendUserId, friendUserId, userId, limit).reverse();
+        let rows = [];
+        if (day) {
+          const range = parseChatDayRange(day);
+          if (!range) return res.status(400).json({ error: 'invalid_day_format' });
+          rows = stGetFriendConversationByRange.all(
+            userId, friendUserId,
+            friendUserId, userId,
+            range.startMs, range.endMs, limit
+          ).reverse();
+        } else if (after > 0) {
+          rows = stGetFriendConversationAfter.all(
+            userId, friendUserId,
+            friendUserId, userId,
+            after, limit
+          );
+        } else if (before > 0) {
+          rows = stGetFriendConversationBefore.all(
+            userId, friendUserId,
+            friendUserId, userId,
+            before, limit
+          ).reverse();
+        } else {
+          rows = stGetFriendConversationLatest.all(
+            userId, friendUserId,
+            friendUserId, userId,
+            limit
+          ).reverse();
+        }
         return res.json({ rows });
       } catch (err) {
         return res.status(401).json({ error: String(err?.message || err) });
@@ -2765,7 +2863,7 @@ const gameServer = new Server({
         if (!message) return res.status(400).json({ error: 'message_required' });
         const now = Date.now();
         stInsertFriendMessage.run(userId, friendUserId, message, now);
-        const rows = stGetFriendConversation.all(userId, friendUserId, friendUserId, userId, 1).reverse();
+        const rows = stGetFriendConversationLatest.all(userId, friendUserId, friendUserId, userId, 1).reverse();
         return res.json({ ok: true, row: rows[0] || null });
       } catch (err) {
         return res.status(401).json({ error: String(err?.message || err) });
