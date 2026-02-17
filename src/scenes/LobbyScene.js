@@ -1264,11 +1264,71 @@ export default class LobbyScene extends Phaser.Scene {
           }
         }
       };
+      let chatTouchScrollActive = false;
+      let chatTouchLastY = 0;
+      let chatTouchAccumY = 0;
+      const endChatTouchScroll = () => {
+        chatTouchScrollActive = false;
+        chatTouchLastY = 0;
+        chatTouchAccumY = 0;
+      };
+      const friendPointerDownHandler = (pointer) => {
+        if (!isMobileUi) return;
+        if (!friendPanel?.root?.visible) return;
+        if (!selectedChatFriend?.user_id) return;
+        const px = Number(pointer?.worldX ?? pointer?.x ?? 0);
+        const py = Number(pointer?.worldY ?? pointer?.y ?? 0);
+        const chatArea = friendPanel.scrollAreas?.chat;
+        if (!inArea(px, py, chatArea)) return;
+        chatTouchScrollActive = true;
+        chatTouchLastY = py;
+        chatTouchAccumY = 0;
+      };
+      const friendPointerMoveHandler = (pointer) => {
+        if (!isMobileUi) return;
+        if (!chatTouchScrollActive) return;
+        if (!friendPanel?.root?.visible || !selectedChatFriend?.user_id) {
+          endChatTouchScroll();
+          return;
+        }
+        const py = Number(pointer?.worldY ?? pointer?.y ?? 0);
+        const dy = py - chatTouchLastY;
+        chatTouchLastY = py;
+        if (!Number.isFinite(dy) || dy === 0) return;
+        chatTouchAccumY += dy;
+        const thresholdPx = 12;
+        const absAccum = Math.abs(chatTouchAccumY);
+        if (absAccum < thresholdPx) return;
+        const stepCount = Math.max(1, Math.floor(absAccum / thresholdPx));
+        chatTouchAccumY = chatTouchAccumY > 0 ? (absAccum - stepCount * thresholdPx) : -(absAccum - stepCount * thresholdPx);
+        const chatStep = dy > 0 ? -stepCount : stepCount;
+        const maxOffset = Math.max(0, Math.floor(Number(friendPanel.scrollAreas?.chat?.maxOffset || 0)));
+        const next = clampOffset(chatScrollOffset + chatStep, maxOffset);
+        if (next !== chatScrollOffset) {
+          chatScrollOffset = next;
+          renderChatRowsFromCache();
+        }
+        if (chatStep > 0 && next >= maxOffset) {
+          void loadFriendChat({ mode: 'older' });
+        }
+      };
+      const friendPointerUpHandler = () => {
+        if (!isMobileUi) return;
+        endChatTouchScroll();
+      };
       this.input.keyboard.on('keydown', friendInputKeyHandler);
       this.input.on('wheel', friendWheelHandler);
+      this.input.on('pointerdown', friendPointerDownHandler);
+      this.input.on('pointermove', friendPointerMoveHandler);
+      this.input.on('pointerup', friendPointerUpHandler);
+      this.input.on('pointerupoutside', friendPointerUpHandler);
       this.events.once('shutdown', () => {
         this.input.keyboard.off('keydown', friendInputKeyHandler);
         this.input.off('wheel', friendWheelHandler);
+        this.input.off('pointerdown', friendPointerDownHandler);
+        this.input.off('pointermove', friendPointerMoveHandler);
+        this.input.off('pointerup', friendPointerUpHandler);
+        this.input.off('pointerupoutside', friendPointerUpHandler);
       });
     };
     const openFriendMenu = async () => {
