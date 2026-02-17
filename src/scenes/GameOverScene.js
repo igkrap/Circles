@@ -15,6 +15,7 @@ export default class GameOverScene extends Phaser.Scene {
     this.finalTimeSec = data?.timeSec ?? 0;
     this.finalTotalScore = data?.totalScore ?? 0;
     this.mode = String(data?.mode ?? 'survival');
+    this.pvp = data?.pvp ?? null;
     this.reason = String(data?.reason ?? 'player_down');
   }
 
@@ -46,7 +47,9 @@ export default class GameOverScene extends Phaser.Scene {
       .setOrigin(0.5);
     root.add(topGlow);
 
-    const modeLabel = this.mode === 'defense' ? '디펜스 모드' : '생존 모드';
+    const modeLabel = this.mode === 'pvp'
+      ? 'PVP 모드'
+      : (this.mode === 'defense' ? '디펜스 모드' : '스테이지 모드');
     const modeChip = this.add.rectangle(cardX, cardY - cardH * 0.5 + 44, 146, 30, 0x2a395d, 0.96);
     modeChip.setStrokeStyle(1, 0x7ea0ff, 0.75);
     const modeTx = this.add.text(cardX, modeChip.y, modeLabel, {
@@ -64,7 +67,9 @@ export default class GameOverScene extends Phaser.Scene {
     }).setOrigin(0.5);
     root.add(title);
 
-    const reasonText = this.reason === 'core_destroyed' ? '중앙 코어가 파괴되었습니다' : '플레이어가 쓰러졌습니다';
+    const reasonText = this.reason === 'core_destroyed'
+      ? '중앙 코어가 파괴되었습니다'
+      : (this.reason === 'stage_clear' ? '스테이지 30을 클리어했습니다' : '플레이어가 쓰러졌습니다');
     const subtitle = this.add.text(cardX, titleY + 42, reasonText, {
       fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
       fontSize: '16px',
@@ -157,7 +162,12 @@ export default class GameOverScene extends Phaser.Scene {
     const rowY = retryY + (compact ? 46 : 52);
     const retryBtn = mkBtn(cardX, retryY, Math.min(360, cardW - 90), compact ? 38 : 40, '재도전', () => {
       bgm.stop();
-      this.scene.start('Game', { mode: this.mode });
+      this.scene.start('Game', {
+        mode: this.mode,
+        token: this.pvp?.token,
+        serverBaseUrl: this.pvp?.serverBaseUrl,
+        user: this.pvp?.user
+      });
     }, 0x35538b, 0x4668ad);
     const lobbyBtn = mkBtn(cardX - Math.min(128, cardW * 0.22), rowY, Math.min(214, cardW * 0.36), compact ? 34 : 36, '로비', () => {
       bgm.stop();

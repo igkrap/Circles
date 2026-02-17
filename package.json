@@ -5,12 +5,27 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:server": "node --env-file=.env server/index.js",
+    "start:server:prod": "node --env-file=.env.server server/index.js",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "deploy:server:mac": "bash scripts/server/deploy-mac.sh",
+    "install:server:service": "bash scripts/server/install-launchd.sh",
+    "stop:server:service": "bash scripts/server/stop-launchd.sh"
   },
   "dependencies": {
+    "@colyseus/schema": "^4.0.12",
+    "@colyseus/sdk": "^0.17.33",
+    "better-sqlite3": "^12.6.2",
     "clean": "^4.0.2",
-    "phaser": "^3.70.0"
+    "colyseus": "^0.17.8",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "google-auth-library": "^10.5.0",
+    "jsonwebtoken": "^9.0.3",
+    "phaser": "^3.70.0",
+    "uuid": "^13.0.0",
+    "ws": "^8.19.0"
   },
   "devDependencies": {
     "vite": "^5.0.0"

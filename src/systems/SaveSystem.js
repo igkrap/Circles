@@ -4,6 +4,63 @@ const KEY_RELIC_STATE = 'dodger_relic_state_v1';
 const MAX_EQUIPPED_RELICS = 3;
 
 export default class SaveSystem {
+  static syncHandler = null;
+  static syncNotifySuspended = false;
+
+  static setSyncHandler(fn) {
+    SaveSystem.syncHandler = typeof fn === 'function' ? fn : null;
+  }
+
+  static notifySync() {
+    if (SaveSystem.syncNotifySuspended) return;
+    if (!SaveSystem.syncHandler) return;
+    try {
+      SaveSystem.syncHandler(SaveSystem.exportProgress());
+    } catch {
+      // no-op
+    }
+  }
+
+  static exportProgress() {
+    return {
+      gold: SaveSystem.getTotalGold(),
+      relicState: SaveSystem.getRelicState(),
+      records: SaveSystem.getRecords()
+    };
+  }
+
+  static importProgress(progress) {
+    const safeGold = Math.max(0, Math.floor(Number(progress?.gold) || 0));
+    const relicState = progress?.relicState && typeof progress.relicState === 'object'
+      ? progress.relicState
+      : { owned: {}, equipped: [] };
+    const records = Array.isArray(progress?.records) ? progress.records : [];
+    SaveSystem.syncNotifySuspended = true;
+    try {
+      SaveSystem.setTotalGold(safeGold);
+      SaveSystem.saveRelicState(relicState);
+      const trimmed = records
+        .filter((r) => r && typeof r === 'object')
+        .map((r) => ({
+          name: String(r?.name ?? 'PLAYER').slice(0, 24),
+          totalScore: Math.max(0, Math.floor(Number(r?.totalScore) || 0)),
+          timeSec: Math.max(0, Number(r?.timeSec) || 0),
+          kills: Math.max(0, Math.floor(Number(r?.kills) || 0)),
+          stage: Math.max(1, Math.floor(Number(r?.stage) || 1)),
+          level: Math.max(1, Math.floor(Number(r?.level) || 1)),
+          createdAt: Math.max(0, Math.floor(Number(r?.createdAt) || Date.now()))
+        }))
+        .sort((a, b) => {
+          if (b.totalScore !== a.totalScore) return b.totalScore - a.totalScore;
+          return b.timeSec - a.timeSec;
+        })
+        .slice(0, 200);
+      localStorage.setItem(KEY_RECORDS, JSON.stringify(trimmed));
+    } finally {
+      SaveSystem.syncNotifySuspended = false;
+    }
+  }
+
   static getTotalGold() {
     const raw = localStorage.getItem(KEY_TOTAL_GOLD);
     const n = raw ? Number(raw) : 0;
@@ -14,6 +71,7 @@ export default class SaveSystem {
     const n = Number(v);
     const safe = Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
     localStorage.setItem(KEY_TOTAL_GOLD, String(safe));
+    SaveSystem.notifySync();
     return safe;
   }
 
@@ -53,6 +111,7 @@ export default class SaveSystem {
     });
     const trimmed = arr.slice(0, 200);
     localStorage.setItem(KEY_RECORDS, JSON.stringify(trimmed));
+    SaveSystem.notifySync();
     return safe;
   }
 
@@ -104,6 +163,7 @@ export default class SaveSystem {
 
     const safe = { owned, equipped };
     localStorage.setItem(KEY_RELIC_STATE, JSON.stringify(safe));
+    SaveSystem.notifySync();
     return safe;
   }
 

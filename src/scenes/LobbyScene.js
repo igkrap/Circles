@@ -1,8 +1,20 @@
 ﻿import Phaser from 'phaser';
 import SaveSystem from '../systems/SaveSystem.js';
 import SettingsSystem from '../systems/SettingsSystem.js';
+import AuthSystem from '../systems/AuthSystem.js';
+import ProgressSyncSystem from '../systems/ProgressSyncSystem.js';
+import { getPvpServerBaseUrl } from '../utils/network.js';
 
 const FONT_KR = 'Pretendard, "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, -apple-system, "Segoe UI", Roboto, Arial';
+
+function getMmrTierLabel(mmr) {
+  const v = Number(mmr || 1000);
+  if (v >= 1800) return 'Diamond';
+  if (v >= 1500) return 'Platinum';
+  if (v >= 1300) return 'Gold';
+  if (v >= 1150) return 'Silver';
+  return 'Bronze';
+}
 
 export default class LobbyScene extends Phaser.Scene {
   constructor() {
@@ -136,6 +148,95 @@ export default class LobbyScene extends Phaser.Scene {
       fontSize: '18px',
       color: '#ffd700'
     }).setOrigin(0, 0);
+    let authSession = AuthSystem.loadSession();
+    const authStatus = this.add.text(18, 40, '', {
+      fontFamily: FONT_KR,
+      fontSize: '12px',
+      color: '#aab6d6'
+    }).setOrigin(0, 0);
+    const authBtn = this.add.rectangle(210, 23, 120, 28, 0x2a3552, 0.95).setInteractive({ useHandCursor: true });
+    authBtn.setStrokeStyle(1, 0x7ea0ff, 0.75);
+    const authBtnTx = this.add.text(210, 23, '', {
+      fontFamily: FONT_KR,
+      fontSize: '14px',
+      color: '#eaf0ff'
+    }).setOrigin(0.5);
+    const refreshAuthUi = (pvpStats = null) => {
+      if (authSession?.user?.name) {
+        if (pvpStats) {
+          const mmr = Number(pvpStats?.mmr || 1000);
+          const wins = Number(pvpStats?.wins || 0);
+          const losses = Number(pvpStats?.losses || 0);
+          const tier = getMmrTierLabel(mmr);
+          authStatus.setText(`로그인: ${authSession.user.name} | MMR ${mmr} (${tier}) ${wins}승 ${losses}패`);
+        } else {
+          authStatus.setText(`로그인: ${authSession.user.name}`);
+        }
+        authBtnTx.setText('로그아웃');
+      } else {
+        authStatus.setText('로그인 필요: PVP 모드');
+        authBtnTx.setText('구글 로그인');
+      }
+    };
+    const loadPvpStats = async () => {
+      if (!authSession?.user?.id) return null;
+      const baseUrl = String(authSession?.serverBaseUrl || getPvpServerBaseUrl());
+      try {
+        const resp = await fetch(`${baseUrl}/pvp/stats/${encodeURIComponent(authSession.user.id)}`);
+        if (!resp.ok) return null;
+        return await resp.json();
+      } catch {
+        return null;
+      }
+    };
+    const attachProgressSync = (session) => {
+      if (!session?.token) {
+        SaveSystem.setSyncHandler(null);
+        return;
+      }
+      SaveSystem.setSyncHandler((snapshot) => {
+        ProgressSyncSystem.schedulePush(session, snapshot);
+      });
+    };
+    const syncProgressFromServer = async () => {
+      if (!authSession?.token) return;
+      try {
+        const remote = await ProgressSyncSystem.pull(authSession);
+        if (remote) SaveSystem.importProgress(remote);
+      } catch {
+        // keep local data when server pull fails
+      }
+    };
+    attachProgressSync(authSession);
+    void syncProgressFromServer().then(() => {
+      goldText.setText(`${SaveSystem.getTotalGold()}`);
+    });
+    void loadPvpStats().then((stats) => refreshAuthUi(stats));
+    authBtn.on('pointerover', () => authBtn.setFillStyle(0x35507a, 0.95));
+    authBtn.on('pointerout', () => authBtn.setFillStyle(0x2a3552, 0.95));
+    authBtn.on('pointerdown', async () => {
+      authBtn.disableInteractive();
+      try {
+        if (authSession?.token) {
+          AuthSystem.clearSession();
+          authSession = null;
+          SaveSystem.setSyncHandler(null);
+          refreshAuthUi();
+        } else {
+          authStatus.setText('구글 로그인 진행 중...');
+          authSession = await AuthSystem.loginWithGoogle();
+          attachProgressSync(authSession);
+          await syncProgressFromServer();
+          goldText.setText(`${SaveSystem.getTotalGold()}`);
+          const stats = await loadPvpStats();
+          refreshAuthUi(stats);
+        }
+      } catch (err) {
+        authStatus.setText(`로그인 실패: ${String(err?.message || err).slice(0, 70)}`);
+      } finally {
+        authBtn.setInteractive({ useHandCursor: true });
+      }
+    });
 
     const drawBookGlyph = (x, y, color = 0xeaf0ff) => {
       const g = this.add.graphics();
@@ -303,7 +404,7 @@ export default class LobbyScene extends Phaser.Scene {
     const y1 = topRowY;
     const y2 = y1 + rowGap;
     const y3 = y2 + rowGap;
-    mkModeBtn(y1, '생존 모드', '기존 규칙으로 끝까지 생존', () => {
+    mkModeBtn(y1, '스테이지 모드', '스테이지 30 클리어 목표', () => {
       bgm.stop();
       this.scene.start('Game', { mode: 'survival' });
     });
@@ -311,7 +412,19 @@ export default class LobbyScene extends Phaser.Scene {
       bgm.stop();
       this.scene.start('Game', { mode: 'defense' });
     });
-    mkModeBtn(y3, 'PVP 모드 🔒', '미구현', () => {}, false);
+    mkModeBtn(y3, 'PVP 모드', '1:1 실시간 대전', () => {
+      if (!authSession?.token) {
+        authStatus.setText('PVP 입장 전 구글 로그인이 필요합니다.');
+        return;
+      }
+      bgm.stop();
+      this.scene.start('Game', {
+        mode: 'pvp',
+        token: authSession.token,
+        user: authSession.user,
+        serverBaseUrl: authSession.serverBaseUrl
+      });
+    }, true);
 
     const closeBtn = this.add.rectangle(w * 0.5, closeY, 150, 34, 0x2a3552, 0.95)
       .setInteractive({ useHandCursor: true });
@@ -357,6 +470,9 @@ export default class LobbyScene extends Phaser.Scene {
     void codexGlyph;
     void rankIcon;
     void rankGlyph;
+    void authStatus;
+    void authBtn;
+    void authBtnTx;
     void bgObjs;
     void startText;
     void shopText;
