@@ -378,8 +378,8 @@ export default class LobbyScene extends Phaser.Scene {
       chatScrollOffset = clampOffset(chatScrollOffset, scrollMax);
       friendPanel.chatScrollMax = scrollMax;
       const end = Math.max(0, rows.length - chatScrollOffset);
-      const start = Math.max(0, end - visibleRows);
-      const chatRowsSource = rows.slice(start, end);
+      const renderWindow = Math.max(120, visibleRows * 4);
+      const chatRowsSource = rows.slice(Math.max(0, end - renderWindow), end);
       clearChatRows();
       if (!selectedChatFriend?.user_id) {
         friendPanel.chatHintText?.setText('채팅할 친구를 선택하세요.');
@@ -388,44 +388,47 @@ export default class LobbyScene extends Phaser.Scene {
       }
       setChatUiVisible(true);
       const sx = friendPanel.chatBox.x - friendPanel.chatBox.width * 0.5 + 10;
-      let sy = friendPanel.chatBox.y - friendPanel.chatBox.height * 0.5 + 8;
-      const maxBottom = friendPanel.chatBox.y + friendPanel.chatBox.height * 0.5 - 8;
-      let lastDateLabel = '';
-      for (const r of chatRowsSource) {
+      const minTop = friendPanel.chatBox.y - friendPanel.chatBox.height * 0.5 + 8;
+      let bottomY = friendPanel.chatBox.y + friendPanel.chatBox.height * 0.5 - 8;
+      for (let i = chatRowsSource.length - 1; i >= 0; i -= 1) {
+        const r = chatRowsSource[i];
         const rawTs = r?.created_at || r?.createdAt || r?.timestamp || r?.ts;
         const dateLabel = formatChatDateLabel(rawTs);
-        if (dateLabel && dateLabel !== lastDateLabel) {
-          const divider = this.add.text(friendPanel.chatBox.x, sy, `──── ${dateLabel} ────`, {
-            fontFamily: FONT_KR,
-            fontSize: '11px',
-            color: '#8fa4cd'
-          }).setOrigin(0.5, 0);
-          if (sy + divider.height > maxBottom) {
-            divider.destroy();
-            break;
-          }
-          friendPanel.root.add(divider);
-          chatRows.push(divider);
-          sy += divider.height + 4;
-          lastDateLabel = dateLabel;
-        }
         const mine = String(r?.from_user_id || '') === String(authSession?.user?.id || '');
         const who = mine ? '나' : String(r?.from_name || '친구');
         const ts = formatChatTimestamp(rawTs);
         const prefix = ts ? `[${ts}] ` : '';
-        const line = this.add.text(sx, sy, `${prefix}${who}: ${String(r?.message || '').slice(0, 120)}`, {
+        const line = this.add.text(sx, bottomY, `${prefix}${who}: ${String(r?.message || '').slice(0, 120)}`, {
           fontFamily: FONT_KR,
           fontSize: '12px',
           color: mine ? '#d8e6ff' : '#9fc1ff',
           wordWrap: { width: friendPanel.chatBox.width - 18 }
-        }).setOrigin(0, 0);
-        if (sy + line.height > maxBottom) {
+        }).setOrigin(0, 1);
+        const lineH = Math.max(16, line.height + 2);
+        if (bottomY - lineH < minTop) {
           line.destroy();
           break;
         }
         friendPanel.root.add(line);
         chatRows.push(line);
-        sy += Math.max(16, line.height + 2);
+        bottomY -= lineH;
+        const prevRawTs = i > 0 ? (chatRowsSource[i - 1]?.created_at || chatRowsSource[i - 1]?.createdAt || chatRowsSource[i - 1]?.timestamp || chatRowsSource[i - 1]?.ts) : '';
+        const prevDateLabel = formatChatDateLabel(prevRawTs);
+        if (dateLabel && dateLabel !== prevDateLabel) {
+          const divider = this.add.text(friendPanel.chatBox.x, bottomY, `──── ${dateLabel} ────`, {
+            fontFamily: FONT_KR,
+            fontSize: '11px',
+            color: '#8fa4cd'
+          }).setOrigin(0.5, 1);
+          const dividerH = divider.height + 4;
+          if (bottomY - dividerH < minTop) {
+            divider.destroy();
+            break;
+          }
+          friendPanel.root.add(divider);
+          chatRows.push(divider);
+          bottomY -= dividerH;
+        }
       }
       const safeMax = Math.max(0, Number(friendPanel.chatScrollMax || 0));
       if (friendPanel.scrollAreas?.chat) {
@@ -472,7 +475,8 @@ export default class LobbyScene extends Phaser.Scene {
         if (chatNoOlderHistory || !chatOldestLoadedTs) return;
         chatLoadingOlder = true;
         try {
-          const out = await FriendSystem.getChat(authSession, friendUserId, { limit: 180, before: chatOldestLoadedTs });
+          const beforeCursor = Math.max(1, Math.floor(Number(chatOldestLoadedTs || 0)) + 1);
+          const out = await FriendSystem.getChat(authSession, friendUserId, { limit: 180, before: beforeCursor });
           if (isStale()) return;
           const incomingRows = normalizeChatRows(out?.rows);
           if (!incomingRows.length) {
@@ -544,7 +548,8 @@ export default class LobbyScene extends Phaser.Scene {
           void refreshFriendBadge();
           return;
         }
-        const out = await FriendSystem.getChat(authSession, friendUserId, { limit: 120, after: chatNewestLoadedTs });
+        const afterCursor = Math.max(0, Math.floor(Number(chatNewestLoadedTs || 0)) - 1);
+        const out = await FriendSystem.getChat(authSession, friendUserId, { limit: 120, after: afterCursor });
         if (isStale()) return;
         const incomingRows = normalizeChatRows(out?.rows);
         if (incomingRows.length > 0) {
@@ -1111,7 +1116,7 @@ export default class LobbyScene extends Phaser.Scene {
         fontSize: '12px',
         color: '#aab6d6'
       }).setOrigin(0, 0.5);
-      const promptMobileChatInput = (sendNow = false) => {
+      const promptMobileChatInput = () => {
         if (!selectedChatFriend?.user_id) {
           friendPanel?.statusText?.setText('먼저 친구 목록에서 채팅 대상을 선택해 주세요.');
           return;
@@ -1120,9 +1125,6 @@ export default class LobbyScene extends Phaser.Scene {
         if (raw == null) return;
         chatInputValue = String(raw).slice(0, 240);
         chatInputText.setText(chatInputValue || '메시지 입력');
-        if (sendNow && String(chatInputValue || '').trim()) {
-          void sendFriendChat();
-        }
       };
       const sendBtn = mkPanelBtn(
         rightX + rightW - sendBtnRightInset - sendBtnW * 0.5,
@@ -1131,10 +1133,6 @@ export default class LobbyScene extends Phaser.Scene {
         sendBtnH,
         '보내기',
         () => {
-          if (isMobileUi) {
-            promptMobileChatInput(true);
-            return;
-          }
           void sendFriendChat();
         }
       );
@@ -1157,7 +1155,7 @@ export default class LobbyScene extends Phaser.Scene {
       });
       chatInputBox.on('pointerdown', () => {
         if (isMobileUi) {
-          promptMobileChatInput(false);
+          promptMobileChatInput();
           activeInputTarget = '';
           chatInputBox.setStrokeStyle(1, 0x7ea0ff, 0.8);
           return;
@@ -1255,12 +1253,13 @@ export default class LobbyScene extends Phaser.Scene {
         }
         if (inArea(px, py, areas.chat) && selectedChatFriend?.user_id) {
           const maxOffset = Math.max(0, Math.floor(Number(areas.chat?.maxOffset || 0)));
-          const next = clampOffset(chatScrollOffset + step, maxOffset);
+          const chatStep = dy > 0 ? -1 : 1;
+          const next = clampOffset(chatScrollOffset + chatStep, maxOffset);
           if (next !== chatScrollOffset) {
             chatScrollOffset = next;
             renderChatRowsFromCache();
           }
-          if (step > 0 && next >= maxOffset) {
+          if (chatStep > 0 && next >= maxOffset) {
             void loadFriendChat({ mode: 'older' });
           }
         }
