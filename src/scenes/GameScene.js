@@ -41,7 +41,7 @@ const SCORE_PER_TYPE = {
 const DEFENSE_CORE_REGEN_PER_SEC = 3;
 const DEFENSE_CORE_REGEN_DELAY_SEC = 2.5;
 const STAGE_MODE_FINAL_STAGE = 30;
-const COOP_REVIVE_HOLD_MS = 5000;
+const COOP_REVIVE_HOLD_MS = 4000;
 
 function getMmrTierLabel(mmr) {
   const v = Number(mmr || 1000);
