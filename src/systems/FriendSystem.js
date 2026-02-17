@@ -55,6 +55,10 @@ async function getFriends(session) {
   return await apiGet(session, '/friends/list');
 }
 
+async function removeFriend(session, friendUserId) {
+  return await apiPost(session, '/friends/remove', { friendUserId: String(friendUserId || '') });
+}
+
 async function addByTag(session, tag) {
   return await apiPost(session, '/friends/add', { tag: String(tag || '').trim().toUpperCase() });
 }
@@ -102,6 +106,7 @@ async function markChatRead(session, friendUserId) {
 export default {
   getMe,
   getFriends,
+  removeFriend,
   addByTag,
   requestByTag,
   getFriendRequests,

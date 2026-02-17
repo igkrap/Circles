@@ -317,6 +317,10 @@ const stInsertFriendLink = appDb.prepare(`
   INSERT OR IGNORE INTO friend_links (user_id, friend_user_id, created_at)
   VALUES (?, ?, ?)
 `);
+const stDeleteFriendLink = appDb.prepare(`
+  DELETE FROM friend_links
+  WHERE user_id = ? AND friend_user_id = ?
+`);
 const stGetFriendLink = appDb.prepare(`
   SELECT user_id, friend_user_id, created_at
   FROM friend_links
@@ -435,6 +439,21 @@ const stUpsertFriendChatRead = appDb.prepare(`
   ON CONFLICT(user_id, friend_user_id) DO UPDATE SET
     last_read_at=excluded.last_read_at
 `);
+const stDeleteFriendChatReadPair = appDb.prepare(`
+  DELETE FROM friend_chat_reads
+  WHERE (user_id = ? AND friend_user_id = ?)
+     OR (user_id = ? AND friend_user_id = ?)
+`);
+const stDeleteFriendInvitesPair = appDb.prepare(`
+  DELETE FROM friend_invites
+  WHERE (from_user_id = ? AND to_user_id = ?)
+     OR (from_user_id = ? AND to_user_id = ?)
+`);
+const stDeleteFriendRequestsPair = appDb.prepare(`
+  DELETE FROM friend_requests
+  WHERE (from_user_id = ? AND to_user_id = ?)
+     OR (from_user_id = ? AND to_user_id = ?)
+`);
 
 function normalizeRunMode(mode) {
   const v = String(mode || '').trim().toLowerCase();
@@ -541,6 +560,13 @@ const txCreateFriendPair = appDb.transaction((userId, otherUserId) => {
   const now = Date.now();
   stInsertFriendLink.run(userId, otherUserId, now);
   stInsertFriendLink.run(otherUserId, userId, now);
+});
+const txRemoveFriendPair = appDb.transaction((userId, otherUserId) => {
+  stDeleteFriendLink.run(userId, otherUserId);
+  stDeleteFriendLink.run(otherUserId, userId);
+  stDeleteFriendChatReadPair.run(userId, otherUserId, otherUserId, userId);
+  stDeleteFriendInvitesPair.run(userId, otherUserId, otherUserId, userId);
+  stDeleteFriendRequestsPair.run(userId, otherUserId, otherUserId, userId);
 });
 
 function createFriendInvite(fromUserId, toUserId) {
@@ -2387,6 +2413,19 @@ const gameServer = new Server({
         ensureUserProfile(userId, name);
         const rows = stListFriends.all(userId);
         return res.json({ rows });
+      } catch (err) {
+        return res.status(401).json({ error: String(err?.message || err) });
+      }
+    });
+    expressApp.post('/friends/remove', (req, res) => {
+      try {
+        const { userId, name } = verifyAuthHeader(req);
+        ensureUserProfile(userId, name);
+        const friendUserId = String(req.body?.friendUserId || '').trim();
+        if (!friendUserId) return res.status(400).json({ error: 'friend_user_id_required' });
+        if (!areFriends(userId, friendUserId)) return res.status(404).json({ error: 'friend_not_found' });
+        txRemoveFriendPair(userId, friendUserId);
+        return res.json({ ok: true });
       } catch (err) {
         return res.status(401).json({ error: String(err?.message || err) });
       }
