@@ -53,16 +53,16 @@ export default class ShopScene extends Phaser.Scene {
       color: '#eaf0ff'
     }).setOrigin(0.5);
 
-    this.goldText = this.add.text(panelLeft + 24, panelTop + 72, '', {
+    this.goldText = this.add.text(panelLeft + panelW - 220, panelTop + 72, '', {
       fontFamily: FONT_KR,
       fontSize: '16px',
       color: '#9dd7ff'
-    });
-    this.equipText = this.add.text(panelLeft + 220, panelTop + 72, '', {
+    }).setOrigin(1, 0.5);
+    this.equipText = this.add.text(panelLeft + panelW - 24, panelTop + 72, '', {
       fontFamily: FONT_KR,
       fontSize: '16px',
       color: '#aab6d6'
-    });
+    }).setOrigin(1, 0.5);
 
     const closeBtn = this.add.rectangle(panelX + panelW * 0.5 - 34, headerY, 32, 30, 0x234463, 0.98).setInteractive({ useHandCursor: true });
     closeBtn.setStrokeStyle(1, 0x89d4ff, 0.9);
@@ -97,6 +97,10 @@ export default class ShopScene extends Phaser.Scene {
       startX: panelLeft + 24,
       y: panelTop + 84
     };
+    this.summaryY = this.tabLayout.y + 15;
+    this.summaryRightX = panelLeft + panelW - 24;
+    this.equipText.setPosition(this.summaryRightX, this.summaryY);
+    this.goldText.setPosition(this.summaryRightX - this.equipText.width - 28, this.summaryY);
 
     const listBg = this.add.rectangle(
       this.viewport.left + this.viewport.width * 0.5,
@@ -189,6 +193,10 @@ export default class ShopScene extends Phaser.Scene {
     const state = SaveSystem.getRelicState();
     this.goldText.setText(`보유 골드: ${SaveSystem.getTotalGold()}`);
     this.equipText.setText(`장착: ${state.equipped.length}/${MAX_EQUIP}`);
+    const rightX = this.summaryRightX ?? (this.scale.width - 24);
+    const y = this.summaryY ?? ((this.tabLayout?.y || 54) + 15);
+    this.equipText.setPosition(rightX, y);
+    this.goldText.setPosition(rightX - this.equipText.width - 28, y);
     this.renderTabs();
     this.renderActiveTab(state);
   }
