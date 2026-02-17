@@ -240,6 +240,8 @@ export default class LobbyScene extends Phaser.Scene {
     let selectedChatFriend = null;
     let chatRows = [];
     let chatCacheRows = [];
+    let friendPanelDataSig = '';
+    let chatCacheSig = '';
     let friendScrollOffset = 0;
     let inviteScrollOffset = 0;
     let reqScrollOffset = 0;
@@ -263,6 +265,27 @@ export default class LobbyScene extends Phaser.Scene {
       const mm = String(d.getMonth() + 1).padStart(2, '0');
       const dd = String(d.getDate()).padStart(2, '0');
       return `${yyyy}년 ${mm}월 ${dd}일`;
+    };
+    const buildFriendPanelDataSig = (data, selected) => {
+      const friends = Array.isArray(data?.friends) ? data.friends : [];
+      const incoming = Array.isArray(data?.incoming) ? data.incoming : [];
+      const reqIncoming = Array.isArray(data?.friendReqIncoming) ? data.friendReqIncoming : [];
+      const meTag = String(data?.me?.tag || '');
+      const sId = String(selected?.user_id || '');
+      const sTag = String(selected?.tag || '');
+      const f = friends.map((x) => `${String(x?.user_id || '')}:${String(x?.name || '')}:${String(x?.tag || '')}:${Math.floor(Number(x?.unread_count || 0))}`).join('|');
+      const i = incoming.map((x) => `${String(x?.id || '')}:${String(x?.from_name || '')}:${String(x?.from_tag || '')}`).join('|');
+      const r = reqIncoming.map((x) => `${String(x?.id || '')}:${String(x?.from_name || '')}:${String(x?.from_tag || '')}`).join('|');
+      return `${meTag}__${sId}__${sTag}__F:${f}__I:${i}__R:${r}`;
+    };
+    const buildChatSig = (rows) => {
+      const list = Array.isArray(rows) ? rows : [];
+      if (list.length === 0) return 'empty';
+      const first = list[0] || {};
+      const last = list[list.length - 1] || {};
+      const firstKey = `${String(first?.id || '')}:${String(first?.created_at || first?.timestamp || '')}`;
+      const lastKey = `${String(last?.id || '')}:${String(last?.created_at || last?.timestamp || '')}:${String(last?.message || '').slice(0, 64)}`;
+      return `${list.length}:${firstKey}:${lastKey}`;
     };
     const stopFriendPanelPolling = () => {
       if (!friendPanelPollTimer) return;
@@ -342,12 +365,33 @@ export default class LobbyScene extends Phaser.Scene {
         chatRows.push(line);
         sy += Math.max(16, line.height + 2);
       }
+      const safeMax = Math.max(0, Number(friendPanel.chatScrollMax || 0));
+      if (friendPanel.scrollAreas?.chat) {
+        friendPanel.scrollAreas.chat.maxOffset = safeMax;
+      }
+      if (safeMax > 0) {
+        const areaX = friendPanel.chatBox.x - friendPanel.chatBox.width * 0.5;
+        const areaY = friendPanel.chatBox.y - friendPanel.chatBox.height * 0.5;
+        const areaW = friendPanel.chatBox.width;
+        const areaH = friendPanel.chatBox.height;
+        const barX = areaX + areaW + 6;
+        const track = this.add.rectangle(barX, areaY + areaH * 0.5, 4, areaH, 0x0e1a2f, 0.95);
+        track.setStrokeStyle(1, 0x2e4a78, 0.8);
+        const thumbH = Math.max(24, Math.floor(areaH * 0.28));
+        const movable = areaH - thumbH;
+        const ratio = Phaser.Math.Clamp(Number(chatScrollOffset || 0) / safeMax, 0, 1);
+        const thumbY = areaY + thumbH * 0.5 + movable * ratio;
+        const thumb = this.add.rectangle(barX, thumbY, 4, thumbH, 0x7ea0ff, 0.95);
+        friendPanel.root.add([track, thumb]);
+        chatRows.push(track, thumb);
+      }
       friendPanel.chatHintText?.setText(rows.length > 0 ? '' : '메시지가 없습니다.');
     };
     const loadFriendChat = async () => {
       if (!authSession?.token || !selectedChatFriend?.user_id) {
         friendPanel.chatScrollMax = 0;
         chatCacheRows = [];
+        chatCacheSig = '';
         friendPanel.chatHintText?.setText('채팅할 친구를 선택하세요.');
         clearChatRows();
         setChatUiVisible(false);
@@ -356,8 +400,14 @@ export default class LobbyScene extends Phaser.Scene {
       try {
         await FriendSystem.markChatRead(authSession, selectedChatFriend.user_id);
         const out = await FriendSystem.getChat(authSession, selectedChatFriend.user_id, 180);
-        chatCacheRows = Array.isArray(out?.rows) ? out.rows : [];
-        renderChatRowsFromCache();
+        const nextRows = Array.isArray(out?.rows) ? out.rows : [];
+        const nextSig = buildChatSig(nextRows);
+        const changed = nextSig !== chatCacheSig;
+        chatCacheRows = nextRows;
+        if (changed || chatRows.length === 0) {
+          renderChatRowsFromCache();
+        }
+        chatCacheSig = nextSig;
         void refreshFriendBadge();
       } catch (err) {
         if (handleFriendAuthError(err)) return;
@@ -366,7 +416,12 @@ export default class LobbyScene extends Phaser.Scene {
     };
     const sendFriendChat = async () => {
       const message = String(chatInputValue || '').trim();
-      if (!authSession?.token || !selectedChatFriend?.user_id || !message) return;
+      if (!authSession?.token) return;
+      if (!selectedChatFriend?.user_id) {
+        friendPanel?.statusText?.setText('먼저 친구 목록에서 채팅 대상을 선택해 주세요.');
+        return;
+      }
+      if (!message) return;
       try {
         await FriendSystem.sendChat(authSession, selectedChatFriend.user_id, message);
         chatInputValue = '';
@@ -432,6 +487,7 @@ export default class LobbyScene extends Phaser.Scene {
         if (selectedChatFriend?.user_id && String(selectedChatFriend.user_id) === String(row.user_id)) {
           selectedChatFriend = null;
           chatCacheRows = [];
+          chatCacheSig = '';
           clearChatRows();
           setChatUiVisible(false);
         }
@@ -463,6 +519,12 @@ export default class LobbyScene extends Phaser.Scene {
         friendPanel?.statusText?.setText('초대를 거절했습니다.');
         await loadFriendPanelData();
       } catch (err) {
+        const msg = String(err?.message || err);
+        if (msg.includes('invite_expired_host_not_waiting') || msg.includes('friend_api_failed:410')) {
+          friendPanel?.statusText?.setText('만료된 요청입니다. 초대한 사용자가 대기 상태가 아닙니다.');
+          await loadFriendPanelData();
+          return;
+        }
         if (handleFriendAuthError(err)) return;
         friendPanel?.statusText?.setText(`응답 실패: ${String(err?.message || err).slice(0, 60)}`);
       }
@@ -596,6 +658,7 @@ export default class LobbyScene extends Phaser.Scene {
         mkBtn(btnBaseX + 24, fy + 12, 48, 20, '채팅', () => {
           selectedChatFriend = f;
           chatScrollOffset = 0;
+          chatCacheSig = '';
           activeInputTarget = '';
           chatInputValue = '';
           friendPanel.chatInputText?.setText('메시지 입력');
@@ -722,9 +785,6 @@ export default class LobbyScene extends Phaser.Scene {
       friendPanel.sendBtnText?.setPosition(cards.chat.x + cards.chat.w - 36, chatInputY);
 
       const chatArea = { x: friendPanel.chatBox.x - chatMsgW * 0.5, y: friendPanel.chatBox.y - chatMsgH * 0.5, w: chatMsgW, h: chatMsgH };
-      if (friendPanel.chatBox.visible && selectedChatFriend?.user_id) {
-        drawScrollbar(chatArea, chatScrollOffset, Math.max(0, Math.floor(Number(friendPanel.chatScrollMax || 0))));
-      }
 
       friendPanel.scrollAreas = {
         friends: { ...friendRowsArea, maxOffset: maxFriendOffset },
@@ -754,13 +814,19 @@ export default class LobbyScene extends Phaser.Scene {
           if (!stillExists) {
             selectedChatFriend = null;
             chatCacheRows = [];
+            chatCacheSig = '';
             clearChatRows();
             friendPanel?.chatHintText?.setText('채팅할 친구를 선택하세요.');
             setChatUiVisible(false);
           }
         }
         if (authSession?.user && friendData?.me?.tag) authSession.user.tag = String(friendData.me.tag);
-        renderFriendPanelRows();
+        const nextSig = buildFriendPanelDataSig(friendData, selectedChatFriend);
+        if (nextSig !== friendPanelDataSig) {
+          renderFriendPanelRows();
+          if (selectedChatFriend?.user_id) renderChatRowsFromCache();
+          friendPanelDataSig = nextSig;
+        }
         if (friendPanel?.statusText) friendPanel.statusText.setText('');
         void refreshFriendBadge();
       } catch (err) {
@@ -859,7 +925,24 @@ export default class LobbyScene extends Phaser.Scene {
         fontSize: '12px',
         color: '#aab6d6'
       }).setOrigin(0, 0.5);
+      const promptMobileChatInput = (sendNow = false) => {
+        if (!selectedChatFriend?.user_id) {
+          friendPanel?.statusText?.setText('먼저 친구 목록에서 채팅 대상을 선택해 주세요.');
+          return;
+        }
+        const raw = window.prompt('메시지 입력', chatInputValue || '');
+        if (raw == null) return;
+        chatInputValue = String(raw).slice(0, 240);
+        chatInputText.setText(chatInputValue || '메시지 입력');
+        if (sendNow && String(chatInputValue || '').trim()) {
+          void sendFriendChat();
+        }
+      };
       const sendBtn = mkPanelBtn(rightX + rightW - 34, chatInputBox.y, 68, 26, '전송', () => {
+        if (isMobileUi) {
+          promptMobileChatInput(true);
+          return;
+        }
         void sendFriendChat();
       });
       inputBox.on('pointerdown', () => {
@@ -878,10 +961,7 @@ export default class LobbyScene extends Phaser.Scene {
       });
       chatInputBox.on('pointerdown', () => {
         if (isMobileUi) {
-          const raw = window.prompt('메시지 입력', chatInputValue || '');
-          if (raw == null) return;
-          chatInputValue = String(raw).slice(0, 240);
-          chatInputText.setText(chatInputValue || '메시지 입력');
+          promptMobileChatInput(false);
           activeInputTarget = '';
           chatInputBox.setStrokeStyle(1, 0x7ea0ff, 0.8);
           return;
@@ -981,7 +1061,6 @@ export default class LobbyScene extends Phaser.Scene {
           const next = clampOffset(chatScrollOffset + step, areas.chat.maxOffset);
           if (next === chatScrollOffset) return;
           chatScrollOffset = next;
-          renderFriendPanelRows();
           renderChatRowsFromCache();
         }
       };
@@ -1006,6 +1085,8 @@ export default class LobbyScene extends Phaser.Scene {
       reqScrollOffset = 0;
       chatScrollOffset = 0;
       chatCacheRows = [];
+      chatCacheSig = '';
+      friendPanelDataSig = '';
       selectedChatFriend = null;
       friendPanel.inputText.setText('태그 입력');
       friendPanel.chatInputText.setText('메시지 입력');

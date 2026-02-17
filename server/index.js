@@ -132,6 +132,17 @@ pvpDb.pragma('journal_mode = WAL');
 const appDb = new Database(APP_DB_PATH);
 appDb.pragma('journal_mode = WAL');
 const authRateMap = new Map();
+const coopPartyStateMap = new Map();
+
+function isCoopInviterWaiting(partyKey, inviterUserId) {
+  const key = String(partyKey || '').trim();
+  const inviter = String(inviterUserId || '').trim();
+  if (!key || !inviter) return false;
+  const state = coopPartyStateMap.get(key);
+  if (!state) return false;
+  if (String(state.phase || '') !== 'waiting') return false;
+  return !!state.userIds?.has(inviter);
+}
 function migrateLegacyProgressDbIfNeeded() {
   const legacyPath = path.join(process.cwd(), 'server', 'progress.sqlite');
   if (APP_DB_PATH === legacyPath) return;
@@ -1385,6 +1396,7 @@ class BattleSurvivalRoom extends Room {
   onCreate(options = {}) {
     this.mode = String(options?.mode || 'pvp').toLowerCase() === 'coop' ? 'coop' : 'pvp';
     this.isCoopMode = this.mode === 'coop';
+    this.partyKey = this.isCoopMode ? String(options?.partyKey || '').trim() : '';
     this.maxClients = 2;
     this.setState(new BattleState());
     this.sessionAuth = new Map();
@@ -1406,6 +1418,8 @@ class BattleSurvivalRoom extends Room {
     this.startedAt = Date.now();
     this.roundStartAt = 0;
     this.setSimulationInterval((dt) => this.updatePve(dt));
+
+    this.refreshCoopPartyState();
 
     this.onMessage('state', (c, msg) => {
       const st = this.state.players.get(c.sessionId);
@@ -1671,6 +1685,26 @@ class BattleSurvivalRoom extends Room {
     });
   }
 
+  refreshCoopPartyState() {
+    if (!this.isCoopMode || !this.partyKey) return;
+    if (this.state.phase === 'ended' || this.clients.length <= 0) {
+      coopPartyStateMap.delete(this.partyKey);
+      return;
+    }
+    const userIds = new Set();
+    for (const client of this.clients) {
+      const auth = this.sessionAuth.get(client.sessionId);
+      const userId = String(auth?.userId || '').trim();
+      if (userId) userIds.add(userId);
+    }
+    coopPartyStateMap.set(this.partyKey, {
+      phase: String(this.state.phase || 'waiting'),
+      userIds,
+      roomId: String(this.roomId || ''),
+      updatedAt: Date.now()
+    });
+  }
+
   getCombatProfile(sid) {
     const base = this.playerCombat.get(sid);
     if (!base) {
@@ -1899,6 +1933,7 @@ class BattleSurvivalRoom extends Room {
       this.state.elapsedSec = 0;
       if (now < this.roundStartAt) return;
       this.state.phase = 'running';
+      this.refreshCoopPartyState();
       this.startedAt = now;
       this.broadcast('match.go', { at: now });
     }
@@ -2125,6 +2160,7 @@ class BattleSurvivalRoom extends Room {
         });
       }
     }
+    this.refreshCoopPartyState();
   }
 
   getCoopStageKillGoal(stage) {
@@ -2170,6 +2206,7 @@ class BattleSurvivalRoom extends Room {
   finalizeMatch(winnerSid, reason) {
     if (this.state.phase === 'ended') return;
     this.state.phase = 'ended';
+    this.refreshCoopPartyState();
     this.pveEnemies.clear();
     this.state.enemies.clear();
     this.state.winnerSid = winnerSid || '';
@@ -2219,6 +2256,13 @@ class BattleSurvivalRoom extends Room {
         const winnerSid = this.clients.map((x) => x.sessionId).find((sid) => sid !== client.sessionId) || '';
         if (winnerSid) this.finalizeMatch(winnerSid, 'disconnect');
       }
+    }
+    this.refreshCoopPartyState();
+  }
+
+  onDispose() {
+    if (this.isCoopMode && this.partyKey) {
+      coopPartyStateMap.delete(this.partyKey);
     }
   }
 }
@@ -2578,6 +2622,13 @@ const gameServer = new Server({
         if (!invite) return res.status(404).json({ error: 'invite_not_found' });
         if (String(invite.to_user_id) !== userId) return res.status(403).json({ error: 'invite_forbidden' });
         if (String(invite.status) !== 'pending') return res.status(400).json({ error: 'invite_not_pending' });
+        if (accept) {
+          const inviterWaiting = isCoopInviterWaiting(invite.party_key, invite.from_user_id);
+          if (!inviterWaiting) {
+            stUpdateInviteStatus.run('expired', Date.now(), inviteId);
+            return res.status(410).json({ error: 'invite_expired_host_not_waiting' });
+          }
+        }
         stUpdateInviteStatus.run(accept ? 'accepted' : 'rejected', Date.now(), inviteId);
         return res.json({
           ok: true,
