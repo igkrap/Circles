@@ -22,19 +22,216 @@ export default class PreloadScene extends Phaser.Scene {
     this.load.audio('sfx_battle', 'assets/SFX_BATTLE.mp3');
     this.load.audio('sfx_thunder', 'assets/SFX_THUNDER.wav');
 
-    // Minimal loading bar
     const w = this.scale.width;
     const h = this.scale.height;
-    const bar = this.add.rectangle(w / 2, h / 2, 300, 16, 0x2a3344).setOrigin(0.5);
-    const fill = this.add.rectangle(w / 2 - 150, h / 2, 0, 16, 0x7ea0ff).setOrigin(0, 0.5);
+    const cx = w * 0.5;
+    const cy = h * 0.56;
+    const fontStack = 'Pretendard, "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif';
+
+    this.cameras.main.setBackgroundColor(0x040a15);
+
+    const bg = this.add.graphics();
+    bg.fillGradientStyle(0x050b16, 0x071126, 0x030912, 0x061224, 1);
+    bg.fillRect(0, 0, w, h);
+
+    const nebulaA = this.add.circle(w * 0.22, h * 0.24, Math.min(w, h) * 0.34, 0x3b7dff, 0.08).setBlendMode(Phaser.BlendModes.ADD);
+    const nebulaB = this.add.circle(w * 0.78, h * 0.76, Math.min(w, h) * 0.4, 0x28b8d8, 0.07).setBlendMode(Phaser.BlendModes.ADD);
+    const nebulaC = this.add.circle(w * 0.5, h * 0.5, Math.min(w, h) * 0.24, 0x77a7ff, 0.05).setBlendMode(Phaser.BlendModes.ADD);
+
+    this.tweens.add({
+      targets: [nebulaA, nebulaB, nebulaC],
+      alpha: { from: 0.05, to: 0.11 },
+      duration: 1800,
+      yoyo: true,
+      repeat: -1
+    });
+
+    const stars = this.add.graphics();
+    for (let i = 0; i < 64; i += 1) {
+      const x = Phaser.Math.Between(0, w);
+      const y = Phaser.Math.Between(0, h);
+      const r = Phaser.Math.FloatBetween(0.7, 2.0);
+      stars.fillStyle(0xd6e8ff, Phaser.Math.FloatBetween(0.12, 0.38));
+      stars.fillCircle(x, y, r);
+    }
+    this.tweens.add({
+      targets: stars,
+      alpha: { from: 0.62, to: 0.95 },
+      duration: 1500,
+      yoyo: true,
+      repeat: -1
+    });
+
+    const grid = this.add.graphics();
+    const gridStep = 36;
+    for (let x = 0; x <= w; x += gridStep) {
+      const major = x % (gridStep * 4) === 0;
+      grid.lineStyle(1, major ? 0x38659e : 0x1f3f66, major ? 0.22 : 0.14);
+      grid.lineBetween(x, 0, x, h);
+    }
+    for (let y = 0; y <= h; y += gridStep) {
+      const major = y % (gridStep * 4) === 0;
+      grid.lineStyle(1, major ? 0x38659e : 0x1f3f66, major ? 0.22 : 0.14);
+      grid.lineBetween(0, y, w, y);
+    }
+
+    const scan = this.add.rectangle(cx, -8, w * 1.2, 2, 0x8fd8ff, 0.16).setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({
+      targets: scan,
+      y: h + 10,
+      duration: 2200,
+      ease: 'Linear',
+      repeat: -1
+    });
+
+    const panelW = Math.min(520, Math.max(320, Math.floor(w * 0.6)));
+    const panelH = 132;
+    const panel = this.add.rectangle(cx, cy, panelW, panelH, 0x0e1a2d, 0.83);
+    const panelTop = cy - panelH * 0.5;
+    panel.setStrokeStyle(2, 0x4570a5, 0.9);
+    const panelShine = this.add.rectangle(cx, cy - 46, panelW - 26, 34, 0x79bfff, 0.08).setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({
+      targets: panelShine,
+      alpha: { from: 0.03, to: 0.12 },
+      duration: 1200,
+      yoyo: true,
+      repeat: -1
+    });
+
+    const ringA = this.add.circle(cx - panelW * 0.5 + 36, panelTop + 32, 12).setStrokeStyle(2, 0x8ad8ff, 0.65);
+    const ringB = this.add.circle(cx - panelW * 0.5 + 36, panelTop + 32, 18).setStrokeStyle(1.5, 0x5aa3ff, 0.44);
+    const core = this.add.circle(cx - panelW * 0.5 + 36, panelTop + 32, 4, 0xb7e8ff, 0.92).setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({
+      targets: [ringA, ringB],
+      scaleX: { from: 0.92, to: 1.1 },
+      scaleY: { from: 0.92, to: 1.1 },
+      alpha: { from: 0.7, to: 0.35 },
+      duration: 1000,
+      yoyo: true,
+      repeat: -1
+    });
+    this.tweens.add({
+      targets: core,
+      alpha: { from: 0.7, to: 1 },
+      duration: 700,
+      yoyo: true,
+      repeat: -1
+    });
+
+    const title = this.add.text(cx, panelTop + 12, 'SYSTEM BOOT', {
+      fontFamily: fontStack,
+      fontSize: '12px',
+      color: '#7cc6ff'
+    }).setOrigin(0.5);
+    const subtitle = this.add.text(cx, panelTop + 36, '인터페이스 로딩 중', {
+      fontFamily: fontStack,
+      fontSize: '20px',
+      color: '#ebf5ff',
+      fontStyle: '700'
+    }).setOrigin(0.5).setWordWrapWidth(Math.max(180, panelW - 140), true);
+
+    const statusText = this.add.text(cx, panelTop + 58, '오디오 자산 불러오는 중', {
+      fontFamily: fontStack,
+      fontSize: '12px',
+      color: '#9fb8d8'
+    }).setOrigin(0.5);
+    const fileText = this.add.text(cx, panelTop + 76, '', {
+      fontFamily: fontStack,
+      fontSize: '11px',
+      color: '#6f88a7'
+    }).setOrigin(0.5).setWordWrapWidth(Math.max(150, panelW - 150), true);
+
+    const barW = panelW - 54;
+    const barH = 14;
+    const barY = panelTop + 98;
+    const barLeft = cx - barW * 0.5;
+
+    const barBg = this.add.rectangle(cx, barY, barW, barH, 0x112544, 0.96);
+    barBg.setStrokeStyle(1, 0x3a6190, 0.95);
+    const barFill = this.add.rectangle(barLeft + 1, barY, 0, barH - 4, 0x67d2ff, 0.95).setOrigin(0, 0.5);
+    const barShine = this.add.rectangle(barLeft, barY, 22, barH + 4, 0xb5edff, 0.14).setOrigin(0, 0.5).setBlendMode(Phaser.BlendModes.ADD);
+    const percentText = this.add.text(cx + barW * 0.5, barY - 17, '0%', {
+      fontFamily: fontStack,
+      fontSize: '14px',
+      color: '#dff1ff',
+      fontStyle: '700'
+    }).setOrigin(1, 0.5);
+
+    const dotCount = 6;
+    const dotSize = 8;
+    const dotGap = 7;
+    const dotsW = dotCount * dotSize + (dotCount - 1) * dotGap;
+    const dotsX = cx - dotsW * 0.5;
+    const dotsY = cy + 58;
+    const dots = Array.from({ length: dotCount }, (_, i) => {
+      const x = dotsX + i * (dotSize + dotGap) + dotSize * 0.5;
+      const d = this.add.rectangle(x, dotsY, dotSize, dotSize, 0x22344f, 0.9);
+      d.setStrokeStyle(1, 0x3b5d84, 0.7);
+      return d;
+    });
+
+    const tips = [
+      'TIP  이동: WASD / 스킬: 1~4',
+      'TIP  쉴드는 피격 시 먼저 소모됩니다',
+      'TIP  특성 조합으로 생존력을 크게 올릴 수 있습니다'
+    ];
+    let tipIndex = 0;
+    const tipText = this.add.text(cx, cy + 80, tips[0], {
+      fontFamily: fontStack,
+      fontSize: '11px',
+      color: '#7d95b4'
+    }).setOrigin(0.5);
+    this.time.addEvent({
+      delay: 1400,
+      loop: true,
+      callback: () => {
+        tipIndex = (tipIndex + 1) % tips.length;
+        tipText.setText(tips[tipIndex]);
+      }
+    });
+
+    const updateProgress = (p) => {
+      const clamped = Phaser.Math.Clamp(Number(p || 0), 0, 1);
+      barFill.width = Math.max(0, (barW - 2) * clamped);
+      barShine.x = barLeft + (barW - 22) * clamped;
+      percentText.setText(`${Math.round(clamped * 100)}%`);
+      const activeDots = Math.ceil(clamped * dotCount);
+      dots.forEach((d, i) => {
+        if (i < activeDots) {
+          d.setFillStyle(0x7ed5ff, 1);
+          d.setStrokeStyle(1, 0xc4eeff, 0.9);
+        } else {
+          d.setFillStyle(0x22344f, 0.9);
+          d.setStrokeStyle(1, 0x3b5d84, 0.7);
+        }
+      });
+
+      if (clamped < 0.35) statusText.setText('오디오 자산 불러오는 중');
+      else if (clamped < 0.75) statusText.setText('시스템 모듈 연결 중');
+      else if (clamped < 1) statusText.setText('최종 구성 적용 중');
+      else statusText.setText('준비 완료');
+    };
+
+    this.load.on('fileprogress', (file) => {
+      const key = String(file?.key || '');
+      if (!key) return;
+      const shown = key.length > 34 ? `${key.slice(0, 31)}...` : key;
+      fileText.setText(shown);
+    });
 
     this.load.on('progress', (p) => {
-      fill.width = 300 * p;
+      updateProgress(p);
     });
 
     this.load.on('complete', () => {
-      bar.destroy();
-      fill.destroy();
+      updateProgress(1);
+      fileText.setText('');
+      this.tweens.add({
+        targets: [panel, panelShine],
+        alpha: { from: 0.9, to: 1 },
+        duration: 140,
+        yoyo: true
+      });
     });
   }
 

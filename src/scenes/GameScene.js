@@ -42,6 +42,19 @@ const DEFENSE_CORE_REGEN_PER_SEC = 3;
 const DEFENSE_CORE_REGEN_DELAY_SEC = 2.5;
 const STAGE_MODE_FINAL_STAGE = 20;
 const COOP_REVIVE_HOLD_MS = 4000;
+const HUD_FONT_DISPLAY = 'Rajdhani, "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif';
+const HUD_FONT_BODY = 'Pretendard, "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif';
+const HUD_COLOR_PANEL = 0x0f1f33;
+const HUD_COLOR_PANEL_DARK = 0x0b1526;
+const HUD_COLOR_PANEL_STROKE = 0x305a83;
+const HUD_COLOR_ACCENT = 0x4cc9f0;
+const HUD_COLOR_TEXT_MAIN = '#e8f3ff';
+const HUD_COLOR_TEXT_SUB = '#9ab4d2';
+const HUD_COLOR_WARN = '#ff9b9b';
+const HUD_COLOR_HP = 0xff7361;
+const HUD_COLOR_HP_SAFE = 0x55d98d;
+const HUD_COLOR_XP = 0x47d3ff;
+const HUD_COLOR_GOLD = '#ffd166';
 
 function getMmrTierLabel(mmr) {
   const v = Number(mmr || 1000);
@@ -135,6 +148,7 @@ export default class GameScene extends Phaser.Scene {
 
   create() {
     if (!this.runMode) this.runMode = 'survival';
+    this.pauseUi = null;
     this.pvpRoom = null;
     this.pvpClient = null;
     this.pvpSelfSid = '';
@@ -190,6 +204,7 @@ export default class GameScene extends Phaser.Scene {
     const worldW = 4800;
     const worldH = 3000;
     this.physics.world.setBounds(0, 0, worldW, worldH);
+    this.physics.world.resume();
     this.createWorldBackdrop(worldW, worldH);
 
     this.player = this.physics.add.image(worldW / 2, worldH / 2, 'tex_player');
@@ -330,7 +345,10 @@ export default class GameScene extends Phaser.Scene {
       this.lineWarnings.forEach((w) => w.gfx?.destroy());
       this.bossLasers.forEach((b) => b.gfx?.destroy());
       this.aimCursorGfx?.destroy();
+      this.pauseUi?.pauseBtn?.destroy();
+      this.pauseUi?.pauseTxt?.destroy();
       this.pauseUi?.root?.destroy(true);
+      this.pauseUi = null;
       this.fxParticles?.destroy();
       this.mobileUi?.root?.destroy(true);
       this.bgLayer?.destroy();
@@ -338,6 +356,7 @@ export default class GameScene extends Phaser.Scene {
       this.playerShadow?.destroy();
       this.playerAura?.destroy();
       this.pvpStatusText?.destroy();
+      this.pvpStatusText = null;
       this.pvpRemoteShots.forEach((s) => s?.destroy?.());
       this.pvpRemoteShots = [];
       this.pvpEnemyIndex.clear();
@@ -349,6 +368,7 @@ export default class GameScene extends Phaser.Scene {
         this.pvpOpponent = null;
       }
       if (this.pvpRoom) {
+        this.pvpRoom.removeAllListeners?.();
         this.pvpRoom.leave();
         this.pvpRoom = null;
       }
@@ -969,7 +989,7 @@ export default class GameScene extends Phaser.Scene {
     if (this.pvpRoundStarted) return;
     this.pvpRoundStarted = true;
     this.pvpCanControl = true;
-    this.inputSystem.setLocked(false);
+    this.inputSystem.setLocked(this.pauseActive);
     this.elapsedMs = 0;
     this.pvpEnemySpawnAcc = 0;
     this.pvpStatusText?.setText('');
@@ -1791,70 +1811,118 @@ export default class GameScene extends Phaser.Scene {
 
   createHud() {
     this.ui = {};
-    const font = 'system-ui, -apple-system, Segoe UI, Roboto, Arial';
+    const fontDisplay = HUD_FONT_DISPLAY;
+    const fontBody = HUD_FONT_BODY;
 
-    this.ui.gold = this.add.text(0, 0, '', { fontFamily: font, fontSize: '18px', color: '#ffd700' }).setScrollFactor(0);
-    this.ui.coin = this.add.image(0, 0, 'tex_gold').setScale(0.9).setScrollFactor(0);
-    this.ui.minimapBg = this.add.rectangle(0, 0, 140, 96, 0x101a2c, 0.62).setOrigin(0, 0).setScrollFactor(0);
-    this.ui.minimapBg.setStrokeStyle(1, 0x3b4d75, 0.9);
+    this.ui.topRibbon = this.add.rectangle(0, 0, 360, 50, HUD_COLOR_PANEL_DARK, 0.54).setOrigin(0.5, 0).setScrollFactor(0).setVisible(false);
+    this.ui.topRibbon.setStrokeStyle(2, HUD_COLOR_PANEL_STROKE, 0.92);
+    this.ui.topRibbonGlow = this.add.rectangle(0, 0, 356, 2, HUD_COLOR_ACCENT, 0.58).setOrigin(0.5, 0).setScrollFactor(0).setVisible(false);
+
+    this.ui.goldPanel = this.add.rectangle(0, 0, 144, 30, HUD_COLOR_PANEL, 0.78).setOrigin(0, 0).setScrollFactor(0).setVisible(false);
+    this.ui.goldPanel.setStrokeStyle(1, HUD_COLOR_PANEL_STROKE, 0.95);
+    this.ui.gold = this.add.text(0, 0, '', { fontFamily: fontDisplay, fontSize: '16px', color: HUD_COLOR_GOLD }).setScrollFactor(0);
+    this.ui.coin = this.add.image(0, 0, 'tex_gold').setScale(0.78).setScrollFactor(0);
+
+    this.ui.minimapBg = this.add.rectangle(0, 0, 122, 84, HUD_COLOR_PANEL_DARK, 0.84).setOrigin(0, 0).setScrollFactor(0);
+    this.ui.minimapBg.setStrokeStyle(2, HUD_COLOR_PANEL_STROKE, 0.95);
     this.ui.minimap = this.add.graphics().setScrollFactor(0);
-    this.ui.stage = this.add.text(this.scale.width / 2, 14, '', { fontFamily: font, fontSize: '18px', color: '#eaf0ff' }).setOrigin(0.5, 0).setScrollFactor(0);
-    this.ui.stageSub = this.add.text(this.scale.width / 2, 36, '', { fontFamily: font, fontSize: '14px', color: '#aab6d6' }).setOrigin(0.5, 0).setScrollFactor(0);
-    this.ui.modeObjective = this.add.text(this.scale.width / 2, 56, '', { fontFamily: font, fontSize: '14px', color: '#8bc6ff' }).setOrigin(0.5, 0).setScrollFactor(0);
-    this.ui.time = this.add.text(this.scale.width - 18, 14, '', { fontFamily: font, fontSize: '18px', color: '#eaf0ff' }).setOrigin(1, 0).setScrollFactor(0);
-    this.ui.ping = this.add.text(this.scale.width - 18, 34, '', { fontFamily: font, fontSize: '12px', color: '#aab6d6' }).setOrigin(1, 0).setScrollFactor(0);
-    this.ui.bossHpBg = this.add.rectangle(this.scale.width * 0.5, 82, Math.min(420, this.scale.width - 120), 12, 0x23304a, 0.96)
+
+    this.ui.stage = this.add.text(this.scale.width / 2, 11, '', {
+      fontFamily: fontDisplay,
+      fontSize: '18px',
+      color: HUD_COLOR_TEXT_MAIN
+    }).setOrigin(0.5, 0).setScrollFactor(0);
+    this.ui.stageSub = this.add.text(this.scale.width / 2, 27, '', {
+      fontFamily: fontBody,
+      fontSize: '10px',
+      color: HUD_COLOR_TEXT_SUB
+    }).setOrigin(0.5, 0).setScrollFactor(0);
+    this.ui.modeObjective = this.add.text(this.scale.width / 2, 41, '', {
+      fontFamily: fontBody,
+      fontSize: '10px',
+      color: '#89d5ff'
+    }).setOrigin(0.5, 0).setScrollFactor(0);
+
+    this.ui.timePanel = this.add.rectangle(0, 0, 86, 30, HUD_COLOR_PANEL, 0.78).setOrigin(0, 0).setScrollFactor(0);
+    this.ui.timePanel.setStrokeStyle(1, HUD_COLOR_PANEL_STROKE, 0.95);
+    this.ui.time = this.add.text(this.scale.width - 18, 13, '', {
+      fontFamily: fontDisplay,
+      fontSize: '17px',
+      color: HUD_COLOR_TEXT_MAIN
+    }).setOrigin(1, 0).setScrollFactor(0);
+    this.ui.ping = this.add.text(this.scale.width - 18, 34, '', {
+      fontFamily: fontBody,
+      fontSize: '10px',
+      color: HUD_COLOR_TEXT_SUB
+    }).setOrigin(1, 0).setScrollFactor(0);
+
+    this.ui.bossHpFrame = this.add.rectangle(this.scale.width * 0.5, 94, Math.min(420, this.scale.width - 120) + 16, 22, HUD_COLOR_PANEL_DARK, 0.9)
       .setOrigin(0.5, 0.5)
       .setScrollFactor(0)
       .setVisible(false);
-    this.ui.bossHpFill = this.add.rectangle(this.scale.width * 0.5, 82, Math.min(420, this.scale.width - 120), 12, 0xff4f74, 0.96)
+    this.ui.bossHpFrame.setStrokeStyle(2, 0x6c3146, 0.95);
+    this.ui.bossHpBg = this.add.rectangle(this.scale.width * 0.5, 94, Math.min(420, this.scale.width - 120), 10, 0x2f1823, 0.98)
+      .setOrigin(0.5, 0.5)
+      .setScrollFactor(0)
+      .setVisible(false);
+    this.ui.bossHpFill = this.add.rectangle(this.scale.width * 0.5, 94, Math.min(420, this.scale.width - 120), 10, 0xff7361, 0.98)
       .setOrigin(0, 0.5)
       .setScrollFactor(0)
       .setVisible(false);
-    this.ui.bossHpLabel = this.add.text(this.scale.width * 0.5, 72, '보스', {
-      fontFamily: font,
+    this.ui.bossHpLabel = this.add.text(this.scale.width * 0.5, 77, '보스', {
+      fontFamily: fontDisplay,
       fontSize: '13px',
-      color: '#ffd4d9'
+      color: '#ffd9c8'
     }).setOrigin(0.5).setScrollFactor(0).setVisible(false);
 
-    this.ui.xpBarBg = this.add.rectangle(0, 0, this.scale.width, 10, 0x23304a).setOrigin(0, 1).setScrollFactor(0);
-    this.ui.xpBarFill = this.add.rectangle(0, 0, this.scale.width, 10, 0x7ea0ff).setOrigin(0, 1).setScrollFactor(0);
-    this.ui.xpBarBg.setStrokeStyle(1, 0x3b4d75, 1);
+    this.ui.xpBarBg = this.add.rectangle(0, 0, this.scale.width, 8, 0x0f1d31, 0.98).setOrigin(0, 1).setScrollFactor(0);
+    this.ui.xpBarBg.setStrokeStyle(1, HUD_COLOR_PANEL_STROKE, 1);
+    this.ui.xpBarFill = this.add.rectangle(0, 0, this.scale.width, 8, HUD_COLOR_XP, 0.96).setOrigin(0, 1).setScrollFactor(0);
+    this.ui.xpBarEdge = this.add.rectangle(0, 0, this.scale.width, 1, 0xa8ebff, 0.65).setOrigin(0, 1).setScrollFactor(0);
 
-    this.ui.statusBg = this.add.rectangle(0, 0, 310, 72, 0x172033, 0.72).setOrigin(0, 0).setScrollFactor(0);
-    this.ui.statusBg.setStrokeStyle(2, 0x3b4d75, 0.95);
-    this.ui.statusLine = this.add.rectangle(0, 0, 0, 10, 0x23304a, 0.95).setOrigin(0, 0).setScrollFactor(0);
-    this.ui.statusLine.setStrokeStyle(1, 0x3b4d75, 1);
-    this.ui.hp = this.add.text(0, 0, '', { fontFamily: font, fontSize: '17px', color: '#eaf0ff' }).setOrigin(0, 0).setScrollFactor(0);
-    this.ui.shield = this.add.text(0, 0, '', { fontFamily: font, fontSize: '17px', color: '#eaf0ff' }).setOrigin(1, 0).setScrollFactor(0);
-    this.ui.synergy = this.add.text(0, 0, '', { fontFamily: font, fontSize: '13px', color: '#8bc6ff' }).setOrigin(0, 0).setScrollFactor(0);
+    this.ui.statusBg = this.add.rectangle(0, 0, 300, 72, HUD_COLOR_PANEL, 0.84).setOrigin(0, 0).setScrollFactor(0);
+    this.ui.statusBg.setStrokeStyle(2, HUD_COLOR_PANEL_STROKE, 0.96);
+    this.ui.statusAccent = this.add.rectangle(0, 0, 4, 70, HUD_COLOR_ACCENT, 0.3).setOrigin(0, 0).setScrollFactor(0);
+    this.ui.statusLine = this.add.rectangle(0, 0, 0, 10, 0x0c1628, 0.98).setOrigin(0, 0).setScrollFactor(0);
+    this.ui.statusLine.setStrokeStyle(1, 0x294d74, 1);
+    this.ui.statusLineFill = this.add.rectangle(0, 0, 0, 8, HUD_COLOR_HP_SAFE, 0.98).setOrigin(0, 0).setScrollFactor(0);
+    this.ui.hp = this.add.text(0, 0, '', { fontFamily: fontBody, fontSize: '15px', color: HUD_COLOR_TEXT_MAIN }).setOrigin(0, 0).setScrollFactor(0);
+    this.ui.shield = this.add.text(0, 0, '', { fontFamily: fontBody, fontSize: '13px', color: '#8fcfff' }).setOrigin(0, 0).setScrollFactor(0);
+    this.ui.synergy = this.add.text(0, 0, '', { fontFamily: fontBody, fontSize: '11px', color: '#79caef' }).setOrigin(0, 0).setScrollFactor(0);
+    this.ui.shieldCells = [];
+    for (let i = 0; i < 5; i += 1) {
+      const cell = this.add.rectangle(0, 0, 10, 8, 0x1a2e47, 0.62).setOrigin(0.5, 0.5).setScrollFactor(0);
+      cell.setStrokeStyle(1, 0x3e6288, 0.95);
+      cell._shieldFilled = false;
+      this.ui.shieldCells.push(cell);
+    }
 
     this.ui.skillSlots = [];
     for (let i = 0; i < 4; i += 1) {
-      const bg = this.add.rectangle(0, 0, 56, 56, 0x172033, 0.72).setOrigin(0.5).setScrollFactor(0);
-      const border = this.add.rectangle(0, 0, 56, 56).setOrigin(0.5).setScrollFactor(0);
-      border.setStrokeStyle(2, 0x3b4d75, 1);
+      const bg = this.add.rectangle(0, 0, 52, 52, 0x0f1b2e, 0.86).setOrigin(0.5).setScrollFactor(0);
+      const border = this.add.rectangle(0, 0, 52, 52).setOrigin(0.5).setScrollFactor(0);
+      border.setStrokeStyle(2, 0x33577d, 1);
       const num = this.add.text(0, 0, String(i + 1), {
-        fontFamily: font,
-        fontSize: '13px',
-        color: '#eaf0ff'
+        fontFamily: fontDisplay,
+        fontSize: '12px',
+        color: '#8db1d4'
       }).setOrigin(0, 0).setScrollFactor(0);
       const iconSprite = this.add.image(0, 0, 'tex_gold').setVisible(false).setScrollFactor(0);
       const icon = this.add.text(0, 0, '-', {
-        fontFamily: font,
+        fontFamily: fontDisplay,
         fontSize: '12px',
-        color: '#eaf0ff',
+        color: '#e5f2ff',
         align: 'center'
       }).setOrigin(0.5).setScrollFactor(0);
       const rank = this.add.text(0, 0, '', {
-        fontFamily: font,
-        fontSize: '12px',
-        color: '#eaf0ff'
+        fontFamily: fontDisplay,
+        fontSize: '11px',
+        color: '#ffe29b'
       }).setOrigin(1, 1).setScrollFactor(0);
       const cdText = this.add.text(0, 0, '', {
-        fontFamily: font,
+        fontFamily: fontBody,
         fontSize: '12px',
-        color: '#c9d4f2'
+        color: '#d7eaff'
       }).setOrigin(0.5).setScrollFactor(0);
       const cdOverlay = this.add.graphics().setScrollFactor(0);
 
@@ -1867,21 +1935,21 @@ export default class GameScene extends Phaser.Scene {
         rank,
         cdText,
         cdOverlay,
-        rect: { x: 0, y: 0, w: 56, h: 56 }
+        rect: { x: 0, y: 0, w: 52, h: 52 }
       });
     }
 
-    this.ui.traitArea = this.add.rectangle(0, 0, 0, 0, 0x111a2c, 0).setOrigin(0, 0).setScrollFactor(0);
-    this.ui.traitArea.setStrokeStyle(0, 0x3b4d75, 0);
+    this.ui.traitArea = this.add.rectangle(0, 0, 0, 0, HUD_COLOR_PANEL_DARK, 0.62).setOrigin(0, 0).setScrollFactor(0);
+    this.ui.traitArea.setStrokeStyle(1, HUD_COLOR_PANEL_STROKE, 0.85);
     this.ui.traitSlots = [];
     for (let i = 0; i < MAX_UNIQUE_TRAITS_PER_RUN; i += 1) {
-      const slotBg = this.add.rectangle(0, 0, 20, 20, 0x172033, 0).setOrigin(0, 0).setScrollFactor(0);
-      slotBg.setStrokeStyle(0, 0x3b4d75, 0);
+      const slotBg = this.add.rectangle(0, 0, 20, 20, 0x13253c, 0.84).setOrigin(0, 0).setScrollFactor(0);
+      slotBg.setStrokeStyle(1, 0x2f557d, 0.92);
       const icon = this.add.image(0, 0, 'tex_gold').setVisible(false).setScrollFactor(0);
       const rank = this.add.text(0, 0, '', {
-        fontFamily: font,
+        fontFamily: fontDisplay,
         fontSize: '10px',
-        color: '#eaf0ff'
+        color: '#ffd991'
       }).setOrigin(1, 1).setScrollFactor(0);
       this.ui.traitSlots.push({ slotBg, icon, rank });
     }
@@ -1892,24 +1960,24 @@ export default class GameScene extends Phaser.Scene {
     this.ui.reviveHint = null;
     this.ui.reviveLayout = null;
     if (this.isCoopMode) {
-      this.ui.reviveBg = this.add.rectangle(0, 0, 240, 42, 0x132540, 0.8)
+      this.ui.reviveBg = this.add.rectangle(0, 0, 240, 42, 0x163457, 0.84)
         .setOrigin(0.5)
         .setScrollFactor(0)
         .setInteractive({ useHandCursor: true });
-      this.ui.reviveBg.setStrokeStyle(2, 0x3b4d75, 0.95);
-      this.ui.reviveFill = this.add.rectangle(0, 0, 0, 38, 0x5dc28c, 0.74)
+      this.ui.reviveBg.setStrokeStyle(2, 0x3e6e97, 0.95);
+      this.ui.reviveFill = this.add.rectangle(0, 0, 0, 38, 0x53d8a7, 0.75)
         .setOrigin(0, 0.5)
         .setScrollFactor(0)
         .setVisible(false);
       this.ui.reviveLabel = this.add.text(0, 0, '사망한 팀원 근처로 이동', {
-        fontFamily: font,
+        fontFamily: fontBody,
         fontSize: '14px',
-        color: '#eaf0ff'
+        color: HUD_COLOR_TEXT_MAIN
       }).setOrigin(0.5).setScrollFactor(0);
       this.ui.reviveHint = this.add.text(0, 0, '', {
-        fontFamily: font,
+        fontFamily: fontBody,
         fontSize: '12px',
-        color: '#9fb3dc'
+        color: HUD_COLOR_TEXT_SUB
       }).setOrigin(0.5).setScrollFactor(0);
 
       this.ui.reviveBg.on('pointerdown', () => this.setCoopReviveHoldSource('pointer', true));
@@ -1921,98 +1989,149 @@ export default class GameScene extends Phaser.Scene {
 
     const hudDepth = 1000;
     [
+      this.ui.topRibbon,
+      this.ui.topRibbonGlow,
+      this.ui.goldPanel,
       this.ui.gold,
       this.ui.coin,
       this.ui.minimapBg,
       this.ui.stage,
       this.ui.stageSub,
       this.ui.modeObjective,
+      this.ui.timePanel,
       this.ui.time,
       this.ui.ping,
+      this.ui.bossHpFrame,
       this.ui.bossHpBg,
       this.ui.bossHpFill,
       this.ui.bossHpLabel,
       this.ui.xpBarBg,
       this.ui.xpBarFill,
+      this.ui.xpBarEdge,
       this.ui.statusBg,
+      this.ui.statusAccent,
       this.ui.statusLine,
+      this.ui.statusLineFill,
       this.ui.hp,
       this.ui.shield,
       this.ui.synergy,
       this.ui.traitArea
-    ].forEach((obj) => obj.setDepth(hudDepth));
+    ].filter(Boolean).forEach((obj) => obj.setDepth(hudDepth));
+
     if (this.ui.reviveBg) {
       this.ui.reviveBg.setDepth(hudDepth + 5);
       this.ui.reviveFill?.setDepth(hudDepth + 6);
       this.ui.reviveLabel?.setDepth(hudDepth + 7);
       this.ui.reviveHint?.setDepth(hudDepth + 7);
     }
+
     this.ui.minimap.setDepth(hudDepth + 1);
     this.ui.skillSlots.forEach((slot) => {
       slot.bg.setDepth(hudDepth);
-      slot.border.setDepth(hudDepth);
-      slot.num.setDepth(hudDepth + 3);
-      slot.iconSprite.setDepth(hudDepth);
-      slot.icon.setDepth(hudDepth);
+      slot.border.setDepth(hudDepth + 1);
+      slot.num.setDepth(hudDepth + 2);
+      slot.iconSprite.setDepth(hudDepth + 1);
+      slot.icon.setDepth(hudDepth + 1);
       slot.rank.setDepth(hudDepth + 2);
-      slot.cdText.setDepth(hudDepth);
-      slot.cdOverlay.setDepth(hudDepth + 1);
+      slot.cdText.setDepth(hudDepth + 2);
+      slot.cdOverlay.setDepth(hudDepth + 3);
     });
     this.ui.traitSlots.forEach((slot) => {
       slot.slotBg.setDepth(hudDepth);
-      slot.icon.setDepth(hudDepth);
-      slot.rank.setDepth(hudDepth + 1);
+      slot.icon.setDepth(hudDepth + 1);
+      slot.rank.setDepth(hudDepth + 2);
     });
+    this.ui.shieldCells.forEach((cell) => cell.setDepth(hudDepth + 2));
 
     this.layoutHud(this.scale.width, this.scale.height);
     this.scale.on('resize', (gameSize) => this.layoutHud(gameSize.width, gameSize.height));
   }
 
   layoutHud(w, h) {
-    const xpH = 10;
-    const pad = 14;
+    const xpH = 8;
+    const pad = w < 720 ? 8 : 12;
 
-    this.ui.coin.setPosition(14, 22);
-    this.ui.gold.setPosition(28, 13);
-    const mmW = w < 720 ? 118 : 144;
-    const mmH = w < 720 ? 78 : 96;
-    const mmX = pad;
-    const mmY = 40;
+    const goldW = w < 720 ? 132 : 144;
+    this.ui.goldPanel.setPosition(pad, 8).setSize(goldW, 30);
+    this.ui.coin.setPosition(pad + 12, 22);
+    this.ui.gold.setPosition(pad + 26, 11);
+
+    const pauseW = 30;
+    const timeW = w < 720 ? 78 : 86;
+    const topRowY = 8;
+    const topRowH = 30;
+    const rightX = w - pad;
+    const pauseGap = 6;
+    const timeX = rightX - pauseW - pauseGap - timeW;
+    this.ui.timePanel.setPosition(timeX, topRowY).setSize(timeW, topRowH);
+    this.ui.time.setPosition(timeX + timeW - 8, topRowY + 2);
+    this.ui.ping.setPosition(timeX + timeW - 8, topRowY + 18);
+    if (this.pauseUi?.pauseBtn?.active && this.pauseUi?.pauseTxt?.active) {
+      const px = rightX - pauseW * 0.5;
+      const py = topRowY + topRowH * 0.5;
+      this.pauseUi.pauseBtn.setPosition(px, py);
+      this.pauseUi.pauseBtn.setSize(30, 30);
+      this.pauseUi.pauseTxt.setPosition(px, py);
+    }
+
+    const mmW = w < 720 ? 104 : 122;
+    const mmH = w < 720 ? 72 : 84;
+    const mmX = w - pad - mmW;
+    const mmY = topRowY + topRowH + 6;
     this.ui.minimapBg.setPosition(mmX, mmY).setSize(mmW, mmH);
     this.ui.minimapLayout = { x: mmX, y: mmY, w: mmW, h: mmH, pad: 4 };
-    this.ui.stage.setPosition(w / 2, 14);
-    this.ui.stageSub.setPosition(w / 2, 36);
-    this.ui.modeObjective.setPosition(w / 2, 56);
-    this.ui.time.setPosition(w - 18, 14);
-    this.ui.ping.setPosition(w - 18, 34);
-    const bossW = Math.min(460, Math.max(260, w - 180));
-    this.ui.bossHpBg.setPosition(w / 2, 92).setSize(bossW, 12);
-    this.ui.bossHpFill.setPosition((w / 2) - (bossW * 0.5), 92).setSize(bossW, 12);
-    this.ui.bossHpLabel.setPosition(w / 2, 76);
-    this.ui.xpBarBg.setPosition(0, h);
-    this.ui.xpBarBg.width = w;
-    this.ui.xpBarFill.setPosition(0, h);
-    this.ui.xpBarFill.height = xpH;
 
-    const statusW = Math.min(310, Math.max(230, Math.floor(w * 0.42)));
+    this.ui.stage.setPosition(w * 0.5, 10);
+    this.ui.stageSub.setPosition(w * 0.5, 27);
+    this.ui.modeObjective.setPosition(w * 0.5, 41);
+    const stageWrap = Math.max(180, Math.min(340, Math.floor(w * 0.32)));
+    this.ui.stage.setWordWrapWidth(stageWrap, true);
+    this.ui.stageSub.setWordWrapWidth(stageWrap, true);
+    this.ui.modeObjective.setWordWrapWidth(stageWrap, true);
+
+    const bossW = Math.min(500, Math.max(260, w - 180));
+    this.ui.bossHpFrame.setPosition(w * 0.5, 84).setSize(bossW + 16, 22);
+    this.ui.bossHpBg.setPosition(w * 0.5, 84).setSize(bossW, 10);
+    this.ui.bossHpFill.setPosition((w * 0.5) - (bossW * 0.5), 84).setSize(bossW, 10);
+    this.ui.bossHpLabel.setPosition(w * 0.5, 69);
+
+    this.ui.xpBarBg.setPosition(0, h);
+    this.ui.xpBarBg.setSize(w, xpH);
+    this.ui.xpBarFill.setPosition(0, h);
+    this.ui.xpBarFill.setSize(w, xpH);
+    this.ui.xpBarEdge.setPosition(0, h - xpH + 1).setSize(w, 1);
+
+    const statusW = Math.min(300, Math.max(220, Math.floor(w * 0.36)));
     const statusH = 72;
     const statusX = pad;
-    const statusY = h - xpH - 10 - statusH;
-    this.ui.statusBg.setPosition(statusX, statusY);
-    this.ui.statusBg.setSize(statusW, statusH);
-    this.ui.statusLine.setPosition(statusX + 14, statusY + 36);
-    this.ui.statusLine.setSize(statusW - 28, 10);
-    this.ui.hp.setPosition(statusX + 14, statusY + 10);
-    this.ui.shield.setPosition(statusX + statusW - 14, statusY + 10);
-    this.ui.synergy.setPosition(statusX + 14, statusY + 50);
+    const statusY = h - xpH - 8 - statusH;
+    this.ui.statusBg.setPosition(statusX, statusY).setSize(statusW, statusH);
+    this.ui.statusAccent.setPosition(statusX + 1, statusY + 1).setSize(4, statusH - 2);
+    this.ui.statusLine.setPosition(statusX + 14, statusY + 36).setSize(statusW - 28, 10);
+    this.ui.statusLineFill.setPosition(statusX + 15, statusY + 37).setSize(Math.max(0, statusW - 30), 8);
+    this.ui.hp.setPosition(statusX + 14, statusY + 8);
+    this.ui.shield.setPosition(statusX + 14, statusY + 23);
+    this.ui.synergy.setPosition(statusX + 14, statusY + 54);
+    this.ui.synergy.setWordWrapWidth(Math.max(60, statusW - 116), true);
+    const shieldCellSize = 8;
+    const shieldGap = 4;
+    const shieldCount = this.ui.shieldCells?.length || 0;
+    const shieldW = shieldCount > 0 ? (shieldCount * shieldCellSize) + ((shieldCount - 1) * shieldGap) : 0;
+    const shieldX = statusX + statusW - 12 - shieldW;
+    const shieldY = statusY + statusH - 16;
+    this.ui.shieldCells?.forEach((cell, i) => {
+      const cx = shieldX + i * (shieldCellSize + shieldGap) + shieldCellSize * 0.5;
+      const cy = shieldY + shieldCellSize * 0.5;
+      cell.setPosition(cx, cy).setSize(shieldCellSize, shieldCellSize);
+    });
     this.ui.statusLayout = { x: statusX, y: statusY, w: statusW, h: statusH };
 
-    const box = w < 720 ? 48 : 56;
-    const gap = w < 720 ? 8 : 10;
+    const box = w < 720 ? 46 : 52;
+    const gap = w < 720 ? 6 : 8;
     const gridW = box * 2 + gap;
     const gridH = box * 2 + gap;
     const gridX = w - pad - gridW;
-    const gridY = h - xpH - 10 - gridH;
+    const gridY = h - xpH - 8 - gridH;
     this.ui.skillSlots.forEach((slot, idx) => {
       const r = Math.floor(idx / 2);
       const c = idx % 2;
@@ -2021,11 +2140,11 @@ export default class GameScene extends Phaser.Scene {
       slot.rect = { x, y, w: box, h: box };
       slot.bg.setPosition(x + box * 0.5, y + box * 0.5).setSize(box, box);
       slot.border.setPosition(x + box * 0.5, y + box * 0.5).setSize(box, box);
-      slot.num.setPosition(x + 5, y + 3);
-      slot.iconSprite.setPosition(x + box * 0.5, y + box * 0.5 + 2).setDisplaySize(box * 0.36, box * 0.36).setAlpha(0.96);
-      slot.icon.setPosition(x + box * 0.5, y + box * 0.5 + 3).setFontSize(Math.max(10, Math.floor(box * 0.22)));
-      slot.rank.setPosition(x + box - 6, y + box - 6);
-      slot.cdText.setPosition(x + box * 0.5, y + box * 0.5).setFontSize(Math.max(11, Math.floor(box * 0.2)));
+      slot.num.setPosition(x + 4, y + 2).setFontSize(Math.max(10, Math.floor(box * 0.18)));
+      slot.iconSprite.setPosition(x + box * 0.5, y + box * 0.5 + 1).setDisplaySize(box * 0.4, box * 0.4).setAlpha(0.98);
+      slot.icon.setPosition(x + box * 0.5, y + box * 0.5 + 2).setFontSize(Math.max(10, Math.floor(box * 0.21)));
+      slot.rank.setPosition(x + box - 5, y + box - 5).setFontSize(Math.max(10, Math.floor(box * 0.18)));
+      slot.cdText.setPosition(x + box * 0.5, y + box * 0.5).setFontSize(Math.max(10, Math.floor(box * 0.19)));
 
       const showDesktopSkillHud = !this.isMobileTouch;
       slot.bg.setVisible(showDesktopSkillHud);
@@ -2044,7 +2163,7 @@ export default class GameScene extends Phaser.Scene {
       const reviveW = Math.min(320, Math.max(190, Math.floor(w * (this.isMobileTouch ? 0.52 : 0.28))));
       const reviveH = this.isMobileTouch ? 46 : 42;
       const reviveX = Math.floor(w * 0.5);
-      const reviveY = h - xpH - (this.isMobileTouch ? 134 : 34);
+      const reviveY = h - xpH - (this.isMobileTouch ? 124 : 34);
       this.ui.reviveBg.setPosition(reviveX, reviveY).setSize(reviveW, reviveH);
       this.ui.reviveFill.setPosition(reviveX - reviveW * 0.5 + 2, reviveY).setSize(0, reviveH - 4);
       this.ui.reviveLabel.setPosition(reviveX, reviveY);
@@ -2052,26 +2171,27 @@ export default class GameScene extends Phaser.Scene {
       this.ui.reviveLayout = { x: reviveX, y: reviveY, w: reviveW, h: reviveH };
     }
 
-    const traitX = statusX + statusW + 12;
-    const traitY = statusY;
-    const traitW = Math.max(0, gridX - 12 - traitX);
-    const traitH = statusH;
-    const traitVisible = traitW >= 54;
-    this.ui.traitArea.setVisible(false);
-    this.ui.traitArea.setPosition(traitX, traitY).setSize(traitW, traitH);
-
-    const iconSize = 14;
-    const cell = iconSize + 9;
-    const cols = 4;
-    this.ui.traitLayout = { x: traitX, y: traitY, w: traitW, h: traitH, visible: traitVisible, iconSize, cols };
+    const traitCols = Math.min(8, Math.max(1, this.ui.traitSlots.length));
+    const traitIconSize = w < 720 ? 12 : 13;
+    const traitGap = w < 720 ? 8 : 9;
+    const traitRowW = (traitCols * traitIconSize) + ((traitCols - 1) * traitGap);
+    const traitStartX = statusX + statusW - 12 - traitRowW;
+    const traitY = statusY + 8;
+    this.ui.traitArea.setVisible(false).setPosition(0, 0).setSize(0, 0);
+    this.ui.traitLayout = {
+      x: traitStartX,
+      y: traitY,
+      iconSize: traitIconSize,
+      cols: traitCols,
+      gap: traitGap,
+      visible: true
+    };
     this.ui.traitSlots.forEach((slot, i) => {
-      const row = Math.floor(i / cols);
-      const col = i % cols;
-      const sx = traitX + 10 + col * cell;
-      const sy = traitY + 13 + row * (cell + 2);
-      slot.slotBg.setVisible(false).setPosition(sx, sy).setSize(iconSize, iconSize);
-      slot.icon.setVisible(false).setPosition(sx + iconSize * 0.5, sy + iconSize * 0.5).setDisplaySize(iconSize - 2, iconSize - 2);
-      slot.rank.setVisible(false).setPosition(sx + iconSize - 1, sy + iconSize - 1).setFontSize(iconSize <= 16 ? 9 : 10);
+      const sx = traitStartX + i * (traitIconSize + traitGap);
+      const sy = traitY;
+      slot.slotBg.setVisible(false).setPosition(sx, sy).setSize(traitIconSize, traitIconSize);
+      slot.icon.setVisible(false).setPosition(sx + traitIconSize * 0.5, sy + traitIconSize * 0.5).setDisplaySize(traitIconSize - 2, traitIconSize - 2);
+      slot.rank.setVisible(false).setPosition(sx + traitIconSize - 1, sy + traitIconSize - 1).setFontSize(9);
     });
   }
 
@@ -2091,32 +2211,57 @@ export default class GameScene extends Phaser.Scene {
     const oy = y + pad;
 
     mm.clear();
-    mm.fillStyle(0x0b1427, 0.42);
+    mm.fillStyle(0x081223, 0.92);
     mm.fillRect(ox, oy, iw, ih);
+    mm.lineStyle(1, 0x23486c, 0.35);
+    mm.strokeRect(ox, oy, iw, ih);
+
+    const gx = ox + iw * 0.5;
+    const gy = oy + ih * 0.5;
+    mm.lineStyle(1, 0x274d72, 0.22);
+    mm.beginPath();
+    mm.moveTo(gx, oy);
+    mm.lineTo(gx, oy + ih);
+    mm.moveTo(ox, gy);
+    mm.lineTo(ox + iw, gy);
+    mm.strokePath();
 
     const enemies = this.enemies?.getChildren?.() ?? [];
     const stride = Math.max(1, Math.ceil(enemies.length / 70));
-    mm.fillStyle(0xff7a7a, 0.82);
+    mm.fillStyle(0xff8d6f, 0.86);
     for (let i = 0; i < enemies.length; i += stride) {
       const e = enemies[i];
       if (!e?.active) continue;
       const ex = ox + e.x * scaleX;
       const ey = oy + e.y * scaleY;
-      mm.fillCircle(ex, ey, 1.6);
+      mm.fillCircle(ex, ey, 1.4);
     }
 
     const px = ox + this.player.x * scaleX;
     const py = oy + this.player.y * scaleY;
-    mm.fillStyle(0x9fc0ff, 0.98);
-    mm.fillCircle(px, py, 2.4);
+    mm.fillStyle(0xb5ecff, 1);
+    mm.fillCircle(px, py, 2.2);
+    mm.lineStyle(1, 0x4cc9f0, 0.9);
+    mm.strokeCircle(px, py, 3.6);
 
     if (this.isPvpMode && this.pvpOpponentRevealed && this.pvpOpponent) {
       const oxp = ox + this.pvpOpponent.x * scaleX;
       const oyp = oy + this.pvpOpponent.y * scaleY;
-      mm.fillStyle(0xff9bc1, 0.98);
-      mm.fillCircle(oxp, oyp, 2.4);
+      mm.fillStyle(0xffb1a6, 0.95);
+      mm.fillCircle(oxp, oyp, 2.2);
+      mm.lineStyle(1, 0xff8d6f, 0.9);
+      mm.strokeCircle(oxp, oyp, 3.4);
     }
 
+    const cam = this.cameras?.main;
+    if (cam?.worldView) {
+      const vx = ox + cam.worldView.x * scaleX;
+      const vy = oy + cam.worldView.y * scaleY;
+      const vw = cam.worldView.width * scaleX;
+      const vh = cam.worldView.height * scaleY;
+      mm.lineStyle(1, 0x4cc9f0, 0.55);
+      mm.strokeRect(vx, vy, vw, vh);
+    }
   }
 
   drawSlotCooldown(slotUi, fracRemain) {
@@ -2167,7 +2312,6 @@ export default class GameScene extends Phaser.Scene {
   onKeyDown(event) {
     const key = event.keyCode;
     if (key === Phaser.Input.Keyboard.KeyCodes.ESC) {
-      if (this.isPvpMode) return;
       if (!this.levelupActive) this.togglePause();
       return;
     }
@@ -2211,7 +2355,7 @@ export default class GameScene extends Phaser.Scene {
     const next = !!active;
     if (this.levelupActive === next) return;
     this.levelupActive = next;
-    this.inputSystem.setLocked(this.isPvpMode ? false : next);
+    this.inputSystem.setLocked(this.isPvpMode ? this.pauseActive : next);
     if (this.isPvpMode) return;
     if (next) {
       this.physics.world.pause();
@@ -2221,23 +2365,29 @@ export default class GameScene extends Phaser.Scene {
   }
 
   togglePause() {
-    if (this.isPvpMode) return;
     if (this.levelupActive) return;
     this.pauseActive = !this.pauseActive;
     if (this.pauseActive) {
-      this.physics.world.pause();
+      if (!this.isPvpMode) this.physics.world.pause();
       this.inputSystem.setLocked(true);
-      this.pauseUi.root.setVisible(true);
+      this.pauseUi.layoutPause?.();
+      this.pauseUi.root.setVisible(true).setAlpha(0);
+      this.pauseUi.card.setScale(0.96);
+      this.pauseUi.cardShadow?.setScale(0.96);
       this.refreshPauseUi();
+      this.tweens.killTweensOf(this.pauseUi.root);
+      this.tweens.killTweensOf(this.pauseUi.card);
+      this.tweens.killTweensOf(this.pauseUi.cardShadow);
+      this.tweens.add({ targets: this.pauseUi.root, alpha: 1, duration: 130, ease: 'Sine.Out' });
+      this.tweens.add({ targets: [this.pauseUi.card, this.pauseUi.cardShadow], scaleX: 1, scaleY: 1, duration: 180, ease: 'Cubic.Out' });
     } else {
-      this.physics.world.resume();
-      this.inputSystem.setLocked(false);
+      if (!this.isPvpMode) this.physics.world.resume();
+      this.inputSystem.setLocked(this.isPvpMode ? !this.pvpCanControl : false);
       this.pauseUi.root.setVisible(false);
     }
   }
 
   setPaused(active) {
-    if (this.isPvpMode) return;
     if (!!active === this.pauseActive) return;
     this.togglePause();
   }
@@ -2337,7 +2487,7 @@ export default class GameScene extends Phaser.Scene {
       return;
     }
 
-    if (this.pauseActive) {
+    if (this.pauseActive && !this.isPvpMode) {
       this.updateHud();
       return;
     }
@@ -2522,51 +2672,115 @@ export default class GameScene extends Phaser.Scene {
     const shieldMax = this.abilitySystem.rank('SHIELD');
     const hpNow = Math.max(0, Math.floor(this.playerHp));
     const hpRatio = this.playerMaxHp > 0 ? Phaser.Math.Clamp(hpNow / this.playerMaxHp, 0, 1) : 0;
+    const mm = String(Math.floor(tSec / 60)).padStart(2, '0');
+    const ss = String(tSec % 60).padStart(2, '0');
 
-    this.ui.hp.setColor(hpRatio < 0.35 ? '#ffd0d0' : '#eaf0ff');
-    this.ui.hp.setText(`레벨 ${this.progression.level}  체력 ${hpNow}/${this.playerMaxHp}`);
-    this.ui.shield.setVisible(shieldMax > 0);
-    if (shieldMax > 0) {
-      this.ui.shield.setText(`보호막 ${this.playerShield}/${shieldMax}`);
-    }
-    this.ui.gold.setText(`${SaveSystem.getTotalGold()} (+${this.runGold})`);
+    this.ui.hp.setColor(hpRatio < 0.35 ? HUD_COLOR_WARN : HUD_COLOR_TEXT_MAIN);
+    this.ui.hp.setText(`Lv.${this.progression.level}  HP ${hpNow}/${this.playerMaxHp}`);
+    this.ui.shield.setVisible(false);
+    this.ui.shield.setText('');
+    const shieldMaxClamped = Math.max(0, Math.floor(Number(shieldMax || 0)));
+    const shieldCurrent = Math.max(0, Math.floor(Number(this.playerShield || 0)));
+    const shieldVisible = shieldMaxClamped > 0;
+    const shieldSlotCount = this.ui.shieldCells?.length || 0;
+    const unlockedSlots = Math.min(shieldSlotCount, Math.max(0, shieldMaxClamped));
+    const filledSlots = shieldVisible
+      ? Math.min(unlockedSlots, shieldCurrent)
+      : 0;
+    this.ui.shieldCells?.forEach((cell, i) => {
+      const unlocked = i < unlockedSlots;
+      const filled = i < filledSlots;
+      cell.setVisible(shieldVisible);
+      cell.setStrokeStyle(1, unlocked ? 0x5f8fc0 : 0x2d4764, unlocked ? 0.95 : 0.5);
+      cell.setFillStyle(
+        filled ? (hpRatio < 0.35 ? 0x79b6ff : 0x9fd0ff) : (unlocked ? 0x1b3047 : 0x122237),
+        filled ? 0.95 : (unlocked ? 0.72 : 0.48)
+      );
+      if (!shieldVisible || !unlocked) {
+        cell._shieldFilled = false;
+        cell.setScale(1);
+        cell.setAlpha(1);
+        return;
+      }
+      if (cell._shieldFilled !== filled) {
+        cell._shieldFilled = filled;
+        this.tweens.killTweensOf(cell);
+        if (filled) {
+          cell.setScale(0.65);
+          cell.setAlpha(0.45);
+          this.tweens.add({
+            targets: cell,
+            scaleX: 1,
+            scaleY: 1,
+            alpha: 1,
+            duration: 170,
+            ease: 'Back.Out'
+          });
+        } else {
+          cell.setScale(1.08);
+          cell.setAlpha(1);
+          this.tweens.add({
+            targets: cell,
+            scaleX: 1,
+            scaleY: 1,
+            alpha: 0.82,
+            duration: 120,
+            ease: 'Sine.Out',
+            onComplete: () => {
+              if (!cell.active) return;
+              cell.setAlpha(1);
+            }
+          });
+        }
+      }
+    });
+
+    const runGoldText = this.runGold >= 0 ? `+${this.runGold}` : String(this.runGold);
+    this.ui.gold.setText(`${SaveSystem.getTotalGold()} (${runGoldText})`);
+    this.ui.gold.setColor(this.runGold > 0 ? '#ffe8a6' : HUD_COLOR_GOLD);
+
     const flags = this.abilitySystem.synergyFlags();
     const sy = [];
     if (flags.MECHANIC) sy.push('기계(액티브 사거리 +25%)');
     if (flags.SWORDSMAN) sy.push('검사(생명력 흡수 +12%)');
     if (flags.RANGER) sy.push('레인저(기본 공격 관통)');
     if (flags.MAGE) sy.push('마법사(액티브 쿨타임 -40%)');
-    this.ui.synergy.setText(sy.length > 0 ? sy.join(', ') : '');
+    this.ui.synergy.setText(sy.length > 0 ? sy.join('  ') : '');
+
     if (this.isPvpMode) {
       if (this.isCoopMode) {
-        this.ui.stage.setText(`협동 스테이지 ${this.coopStage}`);
-        this.ui.stageSub.setText(`${this.coopStageKills}/${this.coopStageKillGoal}`);
+        this.ui.stage.setText(`COOP STAGE ${this.coopStage}`);
+        this.ui.stageSub.setText(`목표 ${this.coopStageKills}/${this.coopStageKillGoal}`);
       } else {
-        this.ui.stage.setText('PVP');
+        this.ui.stage.setText('PVP DUEL');
         this.ui.stageSub.setText('');
       }
     } else {
-      this.ui.stage.setText(`스테이지 ${stage}`);
-      this.ui.stageSub.setText(`${this.stageDirector.stageKills}/${spec.killGoal}`);
+      this.ui.stage.setText(`STAGE ${stage}`);
+      this.ui.stageSub.setText(`처치 ${this.stageDirector.stageKills}/${spec.killGoal}`);
     }
+
     const boss = (!this.isPvpMode || this.isCoopMode)
       ? this.enemies.getChildren().find((e) => e?.active && e.type === EnemyType.BOSS)
       : null;
 
     if (this.runMode === 'defense' && this.defenseCoreHpMax > 0) {
-      this.ui.modeObjective.setText(`디펜스 코어 ${Math.max(0, Math.floor(this.defenseCoreHp))}/${this.defenseCoreHpMax}`);
-      this.ui.modeObjective.setColor(this.defenseCoreHp / this.defenseCoreHpMax < 0.35 ? '#ffb3b3' : '#8bc6ff');
+      this.ui.modeObjective.setText(`코어 ${Math.max(0, Math.floor(this.defenseCoreHp))}/${this.defenseCoreHpMax}`);
+      this.ui.modeObjective.setColor(this.defenseCoreHp / this.defenseCoreHpMax < 0.35 ? HUD_COLOR_WARN : '#89d5ff');
       this.ui.modeObjective.setVisible(true);
     } else {
-      this.ui.modeObjective.setText(this.isPvpMode ? (this.isCoopMode ? '협동 모드' : '') : '스테이지 모드');
-      this.ui.modeObjective.setColor('#8bc6ff');
+      this.ui.modeObjective.setText(this.isPvpMode ? (this.isCoopMode ? '협동 작전' : '') : '스테이지 돌파');
+      this.ui.modeObjective.setColor('#89d5ff');
       this.ui.modeObjective.setVisible((!this.isPvpMode || this.isCoopMode) && !boss);
     }
-    this.ui.time.setText(`${tSec}s`);
+
+    this.ui.time.setText(`${mm}:${ss}`);
     if (this.isPvpMode) {
       this.ui.ping.setVisible(true);
-      const pingText = Number.isFinite(this.pvpPingMs) ? `${Math.round(this.pvpPingMs)}ms` : '-ms';
+      const pingMs = Number.isFinite(this.pvpPingMs) ? Math.round(this.pvpPingMs) : null;
+      const pingText = pingMs !== null ? `${pingMs}ms` : '--';
       this.ui.ping.setText(pingText);
+      this.ui.ping.setColor(pingMs === null ? HUD_COLOR_TEXT_SUB : (pingMs > 140 ? '#ffb4a6' : '#9ad4d2'));
     } else {
       this.ui.ping.setVisible(false);
       this.ui.ping.setText('');
@@ -2575,28 +2789,40 @@ export default class GameScene extends Phaser.Scene {
     if (!this.isPvpMode || this.isCoopMode) {
       if (boss) {
         const ratioBoss = boss.maxHp > 0 ? Phaser.Math.Clamp(boss.hp / boss.maxHp, 0, 1) : 0;
+        this.ui.bossHpFrame.setVisible(true);
         this.ui.bossHpBg.setVisible(true);
         this.ui.bossHpFill.setVisible(true);
         this.ui.bossHpLabel.setVisible(true);
         const fullW = this.ui.bossHpBg.width;
+        const bossFillColor = ratioBoss < 0.3 ? 0xff6f61 : (ratioBoss < 0.6 ? 0xff9f62 : 0xffc46f);
+        this.ui.bossHpFill.setFillStyle(bossFillColor, 0.98);
         this.ui.bossHpFill.width = fullW * ratioBoss;
         this.ui.bossHpFill.x = this.ui.bossHpBg.x - (fullW * 0.5);
-        this.ui.bossHpLabel.setText(`보스 HP ${Math.max(0, Math.floor(boss.hp))}/${Math.max(1, Math.floor(boss.maxHp))}`);
+        this.ui.bossHpLabel.setText(`BOSS HP ${Math.max(0, Math.floor(boss.hp))}/${Math.max(1, Math.floor(boss.maxHp))}`);
       } else {
+        this.ui.bossHpFrame.setVisible(false);
         this.ui.bossHpBg.setVisible(false);
         this.ui.bossHpFill.setVisible(false);
         this.ui.bossHpLabel.setVisible(false);
       }
     } else {
+      this.ui.bossHpFrame.setVisible(false);
       this.ui.bossHpBg.setVisible(false);
       this.ui.bossHpFill.setVisible(false);
       this.ui.bossHpLabel.setVisible(false);
     }
+
     this.drawMinimap();
 
-    const ratio = this.progression.getXpRatio();
-    this.ui.xpBarFill.width = this.scale.width * ratio;
-    this.ui.statusLine.width = (this.ui.statusLayout.w - 28) * hpRatio;
+    const xpRatio = this.progression.getXpRatio();
+    this.ui.xpBarFill.width = this.scale.width * xpRatio;
+    this.ui.xpBarEdge.width = this.scale.width;
+
+    const hpTrackW = Math.max(0, this.ui.statusLayout.w - 30);
+    const hpFillColor = hpRatio < 0.28 ? HUD_COLOR_HP : (hpRatio < 0.58 ? 0xffb85c : HUD_COLOR_HP_SAFE);
+    this.ui.statusLineFill.setFillStyle(hpFillColor, 0.98);
+    this.ui.statusLineFill.width = hpTrackW * hpRatio;
+    this.ui.statusAccent.setAlpha(0.24 + (1 - hpRatio) * 0.35);
 
     for (let s = 1; s <= 4; s += 1) {
       const slotUi = this.ui.skillSlots[s - 1];
@@ -2616,6 +2842,8 @@ export default class GameScene extends Phaser.Scene {
         slotUi.cdText.setVisible(false).setText('');
         slotUi.cdOverlay.setVisible(false).clear();
       } else {
+        slotUi.bg.setFillStyle(unlocked ? 0x12253d : 0x0d192c, unlocked ? 0.9 : 0.74);
+        slotUi.num.setColor(unlocked ? '#a7cbe8' : '#6e89a5');
         if (iconKey) {
           slotUi.iconSprite.setTexture(iconKey).setVisible(true);
           slotUi.icon.setText('');
@@ -2623,8 +2851,9 @@ export default class GameScene extends Phaser.Scene {
           slotUi.iconSprite.setVisible(false);
           slotUi.icon.setText(unlocked ? this.shortSkillLabel(key) : '-');
         }
-        slotUi.rank.setText('');
-        slotUi.border.setStrokeStyle(2, (unlocked && cd <= 0) ? 0x7ea0ff : 0x3b4d75, 1);
+        slotUi.rank.setText(unlocked && rank > 1 ? `${rank}` : '');
+        slotUi.border.setStrokeStyle(2, (unlocked && cd <= 0) ? 0x57d5ff : (unlocked ? 0x3f7099 : 0x2c4866), 1);
+        slotUi.cdText.setColor(cd > 0 ? '#f0f8ff' : '#8ea9c7');
         slotUi.cdText.setText(cd > 0 ? `${cd.toFixed(1)}s` : '');
         this.drawSlotCooldown(slotUi, cdDur > 1e-6 ? cd / cdDur : 0);
       }
@@ -2640,25 +2869,40 @@ export default class GameScene extends Phaser.Scene {
         const iconKey = unlocked ? (this.getSkillIconKey(key) ?? null) : null;
         b.icon.setVisible(!!iconKey);
         if (iconKey) b.icon.setTexture(iconKey);
-        b.btn.setStrokeStyle(2, (unlocked && cd <= 0) ? 0x7ea0ff : 0x3b4d75, 0.9);
+        b.btn.setStrokeStyle(2, (unlocked && cd <= 0) ? 0x57d5ff : 0x356089, 0.94);
         b.cd.setText(cd > 0 ? `${cd.toFixed(1)}s` : '');
         this.drawSlotCooldown({ cdOverlay: b.cdOverlay, rect: b.rect }, cdDur > 1e-6 ? cd / cdDur : 0);
       });
     }
 
+    const owned = ABILITY_KEYS.filter((k) => this.abilitySystem.rank(k) > 0);
+    this.ui.traitArea?.setVisible(false);
     if (this.ui.traitLayout?.visible) {
-      const owned = ABILITY_KEYS.filter((k) => this.abilitySystem.rank(k) > 0);
-      this.ui.traitSlots.forEach((slot, i) => {
-        const key = owned[i];
-        if (!key) {
-          slot.icon.setVisible(false);
-          slot.rank.setVisible(false);
-          return;
-        }
-        const tex = this.getSkillIconKey(key) ?? 'tex_gold';
-        slot.icon.setTexture(tex).setVisible(true);
-        slot.rank.setText(`${this.abilitySystem.rank(key)}`).setVisible(true);
+      const maxSlots = Math.min(
+        Math.max(1, Math.floor(Number(this.ui.traitLayout.cols || 8))),
+        this.ui.traitSlots.length
+      );
+      this.ui.traitSlots.forEach((slot) => {
+        slot.slotBg.setVisible(false);
+        slot.icon.setVisible(false);
+        slot.rank.setVisible(false);
       });
+
+      const visibleCount = Math.min(maxSlots, owned.length);
+      const offset = maxSlots - visibleCount; // right align
+      for (let i = 0; i < visibleCount; i += 1) {
+        const key = owned[i];
+        const slot = this.ui.traitSlots[offset + i];
+        if (!slot || !key) continue;
+        const rank = this.abilitySystem.rank(key);
+        const tex = this.getSkillIconKey(key) ?? 'tex_gold';
+        slot.slotBg
+          .setVisible(true)
+          .setFillStyle(0x17325a, 0.92)
+          .setStrokeStyle(1, 0x4d81b2, 0.9);
+        slot.icon.setTexture(tex).setVisible(true);
+        slot.rank.setText(rank > 1 ? `${rank}` : '').setVisible(rank > 1);
+      }
     }
 
     this.updateCoopReviveHud();
@@ -2852,70 +3096,198 @@ export default class GameScene extends Phaser.Scene {
 
   createPauseUi() {
     const root = this.add.container(0, 0).setDepth(2000).setVisible(false).setScrollFactor(0);
-    const dim = this.add.rectangle(0, 0, this.scale.width, this.scale.height, 0x000000, 0.62).setOrigin(0).setScrollFactor(0);
-    const cardW = Math.min(560, this.scale.width - 32);
-    const cardH = Math.min(560, this.scale.height - 32);
-    const card = this.add.rectangle(this.scale.width * 0.5, this.scale.height * 0.5, cardW, cardH, 0x172033, 0.97).setScrollFactor(0);
-    card.setStrokeStyle(2, 0x3b4d75, 1);
-    const top = card.y - cardH * 0.5;
-    const bottom = card.y + cardH * 0.5;
-    const title = this.add.text(card.x, top + 38, '일시정지', {
-      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
-      fontSize: '32px',
-      color: '#eaf0ff'
+    const fontDisplay = HUD_FONT_DISPLAY;
+    const fontBody = HUD_FONT_BODY;
+
+    const dim = this.add.rectangle(0, 0, this.scale.width, this.scale.height, 0x040811, 0.74)
+      .setOrigin(0)
+      .setScrollFactor(0);
+    const frame = this.add.graphics().setScrollFactor(0);
+    const cardShadow = this.add.rectangle(0, 0, 420, 360, 0x030812, 0.66).setScrollFactor(0);
+    const cardGlow = this.add.rectangle(0, 0, 420, 360, 0x56a8ff, 0.08).setScrollFactor(0);
+    const card = this.add.rectangle(0, 0, 420, 360, 0x0f1b2f, 0.97).setScrollFactor(0);
+    card.setStrokeStyle(2, 0x4676a7, 0.96);
+
+    const headerBand = this.add.rectangle(0, 0, 320, 58, 0x173352, 0.24).setScrollFactor(0);
+    headerBand.setStrokeStyle(1, 0x5aa9e4, 0.35);
+    const titleTag = this.add.text(0, 0, 'PAUSE', {
+      fontFamily: fontDisplay,
+      fontSize: '12px',
+      color: '#86cfff'
     }).setOrigin(0.5).setScrollFactor(0);
+    const title = this.add.text(0, 0, '일시정지', {
+      fontFamily: fontDisplay,
+      fontSize: '28px',
+      color: '#edf6ff'
+    }).setOrigin(0.5).setScrollFactor(0);
+    const audioLabel = this.add.text(0, 0, 'AUDIO', {
+      fontFamily: fontDisplay,
+      fontSize: '11px',
+      color: '#7dc7f1'
+    }).setOrigin(0, 0.5).setScrollFactor(0);
+    const actionDivider = this.add.rectangle(0, 0, 300, 1, 0x34557a, 0.72).setScrollFactor(0);
 
-    const mkBtn = (y, label, onClick) => {
-      const bg = this.add.rectangle(card.x, y, Math.min(320, cardW - 90), 42, 0x2a3552, 0.98).setInteractive({ useHandCursor: true }).setScrollFactor(0);
-      bg.setStrokeStyle(1, 0x7ea0ff, 0.8);
-      const tx = this.add.text(card.x, y, label, {
-        fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
-        fontSize: '18px',
-        color: '#eaf0ff'
+    const makeButton = (label, onClick, kind = 'normal', opts = {}) => {
+      const width = Math.max(24, Math.floor(Number(opts.w || 180)));
+      const height = Math.max(24, Math.floor(Number(opts.h || 34)));
+      const fontSize = Math.max(10, Math.floor(Number(opts.fontSize || 14)));
+      const bg = this.add.rectangle(0, 0, width, height, 0x24364f, 0.96).setScrollFactor(0);
+      bg.setStrokeStyle(1, 0x628ab5, 0.88);
+      bg.setInteractive({ useHandCursor: true });
+      const tx = this.add.text(0, 0, label, {
+        fontFamily: fontBody,
+        fontSize: `${fontSize}px`,
+        color: '#eaf2ff'
       }).setOrigin(0.5).setScrollFactor(0);
-      bg.on('pointerdown', onClick);
-      return { bg, tx };
+
+      const palette = kind === 'primary'
+        ? { baseFill: 0x25557d, hoverFill: 0x326c9e, activeFill: 0x3d80b9, baseStroke: 0x82d1ff, hoverStroke: 0xa8e4ff, text: '#eff8ff' }
+        : kind === 'danger'
+          ? { baseFill: 0x3a2e42, hoverFill: 0x4a3a52, activeFill: 0x5a455f, baseStroke: 0xa181ba, hoverStroke: 0xc7a6dd, text: '#f4ecff' }
+          : kind === 'step'
+            ? { baseFill: 0x1e334d, hoverFill: 0x294564, activeFill: 0x335877, baseStroke: 0x6088b2, hoverStroke: 0x85b5df, text: '#e4f0ff' }
+            : kind === 'toggle'
+              ? { baseFill: 0x253f5b, hoverFill: 0x315273, activeFill: 0x3d6387, baseStroke: 0x6f95bf, hoverStroke: 0x99c9f6, text: '#eaf2ff' }
+              : { baseFill: 0x22364f, hoverFill: 0x2f4a6b, activeFill: 0x3c5f88, baseStroke: 0x658cb4, hoverStroke: 0x90bde9, text: '#e8f1ff' };
+
+      let enabled = true;
+      let customPalette = { ...palette };
+      const applyState = (state = 'base') => {
+        if (!enabled) {
+          bg.setFillStyle(0x182536, 0.56);
+          bg.setStrokeStyle(1, 0x354a66, 0.45);
+          tx.setColor('#7085a1');
+          return;
+        }
+        if (state === 'hover') {
+          bg.setFillStyle(customPalette.hoverFill, 0.98);
+          bg.setStrokeStyle(1, customPalette.hoverStroke, 1);
+        } else if (state === 'active') {
+          bg.setFillStyle(customPalette.activeFill, 1);
+          bg.setStrokeStyle(1, customPalette.hoverStroke, 1);
+        } else {
+          bg.setFillStyle(customPalette.baseFill, 0.96);
+          bg.setStrokeStyle(1, customPalette.baseStroke, 0.92);
+        }
+        tx.setColor(customPalette.text || '#eaf2ff');
+      };
+
+      bg.on('pointerover', () => applyState('hover'));
+      bg.on('pointerout', () => applyState('base'));
+      bg.on('pointerdown', () => {
+        if (!enabled) return;
+        applyState('active');
+        onClick?.();
+      });
+      bg.on('pointerup', () => applyState('hover'));
+      applyState('base');
+
+      return {
+        bg,
+        tx,
+        setLabel: (next) => tx.setText(next),
+        setPalette: (next) => {
+          customPalette = { ...customPalette, ...next };
+          applyState('base');
+        },
+        setEnabled: (next) => {
+          enabled = !!next;
+          if (enabled) bg.setInteractive({ useHandCursor: true });
+          else bg.disableInteractive();
+          applyState('base');
+        }
+      };
     };
 
-    const mkRow = (y, leftLabel, onLeft, valueText, onRight) => {
-      const lbl = this.add.text(card.x - 170, y, leftLabel, {
-        fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
-        fontSize: '18px',
-        color: '#aab6d6'
+    const makeToggleRow = (label, onToggle) => {
+      const rowBg = this.add.rectangle(0, 0, 320, 36, 0x12253b, 0.82).setScrollFactor(0);
+      rowBg.setStrokeStyle(1, 0x3b5e83, 0.74);
+      const lbl = this.add.text(0, 0, label, {
+        fontFamily: fontBody,
+        fontSize: '14px',
+        color: '#b6c9e3'
       }).setOrigin(0, 0.5).setScrollFactor(0);
-      const left = this.add.text(card.x + 78, y, '<', {
-        fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
-        fontSize: '22px',
-        color: '#eaf0ff'
-      }).setOrigin(0.5).setInteractive({ useHandCursor: true }).setScrollFactor(0);
-      const val = this.add.text(card.x + 120, y, valueText, {
-        fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
-        fontSize: '18px',
-        color: '#eaf0ff'
-      }).setOrigin(0.5).setScrollFactor(0);
-      const right = this.add.text(card.x + 162, y, '>', {
-        fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
-        fontSize: '22px',
-        color: '#eaf0ff'
-      }).setOrigin(0.5).setInteractive({ useHandCursor: true }).setScrollFactor(0);
-      left.on('pointerdown', onLeft);
-      right.on('pointerdown', onRight);
-      return { lbl, left, val, right };
+      const btn = makeButton('', onToggle, 'toggle', { w: 70, h: 24, fontSize: 11 });
+      const layout = (cx, y, width) => {
+        rowBg.setPosition(cx, y).setSize(width, 36);
+        const left = cx - width * 0.5 + 12;
+        lbl.setPosition(left, y);
+        btn.bg.setPosition(cx + width * 0.5 - 12 - 35, y);
+        btn.tx.setPosition(btn.bg.x, y);
+      };
+      return { rowBg, lbl, btn, layout };
     };
 
-    const bgmToggle = mkBtn(top + 108, '', () => {
+    const makeVolumeRow = (label, onLeft, onRight) => {
+      const rowBg = this.add.rectangle(0, 0, 320, 44, 0x12243a, 0.86).setScrollFactor(0);
+      rowBg.setStrokeStyle(1, 0x3b5d82, 0.78);
+      const lbl = this.add.text(0, 0, label, {
+        fontFamily: fontBody,
+        fontSize: '14px',
+        color: '#b6c9e3'
+      }).setOrigin(0, 0.5).setScrollFactor(0);
+      const leftBtn = makeButton('-', onLeft, 'step', { w: 24, h: 24, fontSize: 16 });
+      const rightBtn = makeButton('+', onRight, 'step', { w: 24, h: 24, fontSize: 16 });
+      const val = this.add.text(0, 0, '', {
+        fontFamily: fontDisplay,
+        fontSize: '12px',
+        color: '#e5f3ff'
+      }).setOrigin(0.5).setScrollFactor(0);
+      const barBg = this.add.rectangle(0, 0, 108, 6, 0x1a2e47, 0.95).setScrollFactor(0);
+      barBg.setStrokeStyle(1, 0x466a8f, 0.85);
+      const barFill = this.add.rectangle(0, 0, 0, 4, 0x73d4ff, 0.96).setOrigin(0, 0.5).setScrollFactor(0);
+
+      const layout = (cx, y, width) => {
+        rowBg.setPosition(cx, y).setSize(width, 44);
+        const left = cx - width * 0.5 + 12;
+        const right = cx + width * 0.5 - 12;
+        lbl.setPosition(left, y - 8);
+
+        rightBtn.bg.setPosition(right - 12, y + 8);
+        rightBtn.tx.setPosition(rightBtn.bg.x, rightBtn.bg.y);
+        val.setPosition(rightBtn.bg.x - 40, rightBtn.bg.y);
+        leftBtn.bg.setPosition(val.x - 40, rightBtn.bg.y);
+        leftBtn.tx.setPosition(leftBtn.bg.x, leftBtn.bg.y);
+
+        const barRight = leftBtn.bg.x - 16;
+        const barWidth = Math.max(72, Math.min(130, barRight - (left + 6)));
+        barBg.setSize(barWidth, 6);
+        barBg.setPosition(left + 6 + barWidth * 0.5, y + 8);
+        barFill.setPosition(barBg.x - barBg.width * 0.5 + 1, barBg.y);
+      };
+
+      const setRatio = (ratio) => {
+        const r = Phaser.Math.Clamp(Number(ratio || 0), 0, 1);
+        const full = Math.max(2, barBg.width - 2);
+        barFill.width = full * r;
+      };
+
+      return {
+        rowBg,
+        lbl,
+        leftBtn,
+        rightBtn,
+        val,
+        barBg,
+        barFill,
+        layout,
+        setRatio
+      };
+    };
+
+    const bgmToggle = makeToggleRow('배경음', () => {
       this.settings.bgmEnabled = !this.settings.bgmEnabled;
       this.applyAudioSettings();
       this.saveSettings();
       this.refreshPauseUi();
     });
-    const sfxToggle = mkBtn(top + 156, '', () => {
+    const sfxToggle = makeToggleRow('효과음', () => {
       this.settings.sfxEnabled = !this.settings.sfxEnabled;
       this.saveSettings();
       this.refreshPauseUi();
     });
-    const bgmVol = mkRow(
-      top + 216,
+
+    const bgmVol = makeVolumeRow(
       '배경음 볼륨',
       () => {
         this.settings.bgmVolume = Math.max(0, this.settings.bgmVolume - 0.1);
@@ -2923,7 +3295,6 @@ export default class GameScene extends Phaser.Scene {
         this.saveSettings();
         this.refreshPauseUi();
       },
-      '',
       () => {
         this.settings.bgmVolume = Math.min(1, this.settings.bgmVolume + 0.1);
         this.applyAudioSettings();
@@ -2931,16 +3302,13 @@ export default class GameScene extends Phaser.Scene {
         this.refreshPauseUi();
       }
     );
-
-    const sfxVol = mkRow(
-      top + 254,
+    const sfxVol = makeVolumeRow(
       '효과음 볼륨',
       () => {
         this.settings.sfxVolume = Math.max(0, this.settings.sfxVolume - 0.1);
         this.saveSettings();
         this.refreshPauseUi();
       },
-      '',
       () => {
         this.settings.sfxVolume = Math.min(1, this.settings.sfxVolume + 0.1);
         this.saveSettings();
@@ -2948,83 +3316,219 @@ export default class GameScene extends Phaser.Scene {
       }
     );
 
-    const lobbyY = bottom - 34;
-    const restartY = lobbyY - 50;
-    const resumeY = restartY - 50;
-    const resumeBtn = mkBtn(resumeY, '계속하기', () => this.setPaused(false));
+    const resumeBtn = makeButton('계속하기', () => this.setPaused(false), 'primary', { w: 158, h: 34, fontSize: 16 });
     const restartMode = this.isCoopMode ? 'coop' : this.runMode;
-    const restartBtn = mkBtn(restartY, '다시 시작', () => this.scene.restart({
+    const restartBtn = makeButton('다시 시작', () => this.scene.restart({
       mode: restartMode,
       token: this.pvpToken,
       serverBaseUrl: this.pvpServerBaseUrl,
       user: this.pvpUser,
       partyKey: this.partyKey
-    }));
-    const lobbyBtn = mkBtn(lobbyY, '로비로', () => {
+    }), 'normal', { w: 158, h: 34, fontSize: 15 });
+    const lobbyBtn = makeButton('로비로', () => {
       this.bgm?.stop();
       this.scene.start('Lobby');
-    });
+    }, 'danger', { w: 320, h: 28, fontSize: 14 });
+    const audioOnlyPopup = this.isPvpMode;
+    if (audioOnlyPopup) {
+      resumeBtn.bg.setVisible(false);
+      resumeBtn.tx.setVisible(false);
+      restartBtn.bg.setVisible(false);
+      restartBtn.tx.setVisible(false);
+      resumeBtn.setEnabled(false);
+      restartBtn.setEnabled(false);
+    }
 
     root.add([
-      dim, card, title,
-      bgmToggle.bg, bgmToggle.tx,
-      sfxToggle.bg, sfxToggle.tx,
-      bgmVol.lbl, bgmVol.left, bgmVol.val, bgmVol.right,
-      sfxVol.lbl, sfxVol.left, sfxVol.val, sfxVol.right,
-      resumeBtn.bg, resumeBtn.tx,
-      restartBtn.bg, restartBtn.tx,
-      lobbyBtn.bg, lobbyBtn.tx
+      dim,
+      frame,
+      cardShadow,
+      cardGlow,
+      card,
+      headerBand,
+      titleTag,
+      title,
+      audioLabel,
+      bgmToggle.rowBg,
+      bgmToggle.lbl,
+      bgmToggle.btn.bg,
+      bgmToggle.btn.tx,
+      sfxToggle.rowBg,
+      sfxToggle.lbl,
+      sfxToggle.btn.bg,
+      sfxToggle.btn.tx,
+      bgmVol.rowBg,
+      bgmVol.lbl,
+      bgmVol.leftBtn.bg,
+      bgmVol.leftBtn.tx,
+      bgmVol.rightBtn.bg,
+      bgmVol.rightBtn.tx,
+      bgmVol.val,
+      bgmVol.barBg,
+      bgmVol.barFill,
+      sfxVol.rowBg,
+      sfxVol.lbl,
+      sfxVol.leftBtn.bg,
+      sfxVol.leftBtn.tx,
+      sfxVol.rightBtn.bg,
+      sfxVol.rightBtn.tx,
+      sfxVol.val,
+      sfxVol.barBg,
+      sfxVol.barFill,
+      actionDivider,
+      resumeBtn.bg,
+      resumeBtn.tx,
+      restartBtn.bg,
+      restartBtn.tx,
+      lobbyBtn.bg,
+      lobbyBtn.tx
     ]);
 
-    const pauseBtn = this.add.rectangle(this.scale.width - 18, 58, 30, 30, 0x2a3552, 0.96)
+    const pauseBtn = this.add.rectangle(this.scale.width - 18, 23, 30, 30, 0x2a3552, 0.96)
       .setOrigin(0.5)
       .setScrollFactor(0)
-      .setDepth(100)
+      .setDepth(2100)
       .setInteractive({ useHandCursor: true });
     pauseBtn.setStrokeStyle(1, 0x7ea0ff, 0.8);
-    const pauseTxt = this.add.text(this.scale.width - 18, 58, 'II', {
-      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+    const pauseTxt = this.add.text(this.scale.width - 18, 23, 'II', {
+      fontFamily: fontDisplay,
       fontSize: '13px',
       color: '#eaf0ff'
-    }).setOrigin(0.5).setScrollFactor(0).setDepth(101);
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(2101);
     pauseBtn.on('pointerdown', () => this.togglePause());
-    if (this.isPvpMode) {
-      pauseBtn.disableInteractive().setVisible(false);
-      pauseTxt.setVisible(false);
-    }
+
+    const layoutPause = () => {
+      const sw = this.scale.width;
+      const sh = this.scale.height;
+      dim.setSize(sw, sh);
+
+      frame.clear();
+      frame.lineStyle(2, 0x3f6693, 0.17);
+      frame.strokeRect(12, 12, Math.max(8, sw - 24), Math.max(8, sh - 24));
+
+      const cardW = Phaser.Math.Clamp(sw - 42, 290, 420);
+      const cardH = Phaser.Math.Clamp(sh - 44, 304, 400);
+      const cx = sw * 0.5;
+      const cy = sh * 0.5;
+      const top = cy - cardH * 0.5;
+      const bottom = cy + cardH * 0.5;
+      const controlW = Phaser.Math.Clamp(cardW - 56, 220, 332);
+      const compact = cardH < 352;
+
+      cardShadow.setPosition(cx, cy + 5).setSize(cardW + 8, cardH + 8);
+      cardGlow.setPosition(cx, cy).setSize(cardW + 4, cardH + 4);
+      card.setPosition(cx, cy).setSize(cardW, cardH);
+      const headerY = top + (compact ? 30 : 35);
+      const headerH = compact ? 46 : 54;
+      const headerTop = headerY - headerH * 0.5;
+      headerBand.setPosition(cx, headerY).setSize(controlW, headerH);
+      titleTag.setPosition(cx, headerTop + (compact ? 11 : 13));
+      title.setPosition(cx, headerTop + (compact ? 31 : 36));
+
+      const lobbyBottomPad = compact ? 12 : 16;
+      const lobbyHalfH = 14;
+      const lobbyY = bottom - lobbyBottomPad - lobbyHalfH;
+      const actionsY = lobbyY - (compact ? 36 : 42);
+      const actionDividerY = actionsY - (compact ? 24 : 30);
+      const volGap = compact ? 38 : 42;
+      const toggleGap = compact ? 34 : 44;
+      const sfxVolY = actionDividerY - volGap;
+      const bgmVolY = sfxVolY - volGap;
+      const sfxToggleY = bgmVolY - toggleGap;
+      const bgmToggleY = sfxToggleY - toggleGap;
+      const bgmRowTop = bgmToggleY - 18;
+      const audioTop = bgmRowTop - (compact ? 10 : 12);
+
+      audioLabel.setPosition(cx - controlW * 0.5 + 2, audioTop);
+      bgmToggle.layout(cx, bgmToggleY, controlW);
+      sfxToggle.layout(cx, sfxToggleY, controlW);
+      bgmVol.layout(cx, bgmVolY, controlW);
+      sfxVol.layout(cx, sfxVolY, controlW);
+
+      if (audioOnlyPopup) {
+        actionDivider.setVisible(false);
+        const singleH = compact ? 30 : 32;
+        lobbyBtn.bg.setPosition(cx, lobbyY).setSize(controlW, singleH);
+        lobbyBtn.tx.setPosition(cx, lobbyY);
+      } else {
+        actionDivider.setVisible(true);
+        actionDivider.setPosition(cx, actionDividerY).setSize(controlW, 1);
+        const gap = compact ? 10 : 14;
+        const halfW = Math.floor((controlW - gap) * 0.5);
+        resumeBtn.bg.setPosition(cx - (halfW + gap) * 0.5, actionsY).setSize(halfW, 34);
+        resumeBtn.tx.setPosition(resumeBtn.bg.x, actionsY);
+        restartBtn.bg.setPosition(cx + (halfW + gap) * 0.5, actionsY).setSize(halfW, 34);
+        restartBtn.tx.setPosition(restartBtn.bg.x, actionsY);
+        lobbyBtn.bg.setPosition(cx, lobbyY).setSize(controlW, 28);
+        lobbyBtn.tx.setPosition(cx, lobbyY);
+      }
+    };
 
     this.pauseUi = {
       root,
       dim,
       card,
+      cardShadow,
       title,
-      bgmToggle,
-      sfxToggle,
+      bgmToggleRow: bgmToggle,
+      sfxToggleRow: sfxToggle,
+      bgmToggle: bgmToggle.btn,
+      sfxToggle: sfxToggle.btn,
       bgmVol,
       sfxVol,
       resumeBtn,
       restartBtn,
       lobbyBtn,
       pauseBtn,
-      pauseTxt
+      pauseTxt,
+      layoutPause
     };
 
     this.scale.on('resize', (size) => {
       if (!this.pauseUi) return;
-      this.pauseUi.dim.setSize(size.width, size.height);
-      this.pauseUi.pauseBtn.setPosition(size.width - 18, 58);
-      this.pauseUi.pauseTxt.setPosition(size.width - 18, 58);
+      this.pauseUi.layoutPause();
+      this.layoutHud(size.width, size.height);
     });
 
+    this.pauseUi.layoutPause();
     this.refreshPauseUi();
+    this.layoutHud(this.scale.width, this.scale.height);
   }
 
   refreshPauseUi() {
     if (!this.pauseUi) return;
-    this.pauseUi.bgmToggle.tx.setText(`배경음: ${this.settings.bgmEnabled ? '켜짐' : '꺼짐'}`);
-    this.pauseUi.sfxToggle.tx.setText(`효과음: ${this.settings.sfxEnabled ? '켜짐' : '꺼짐'}`);
-    this.pauseUi.bgmVol.val.setText(`${Math.round(this.settings.bgmVolume * 100)}%`);
-    this.pauseUi.sfxVol.val.setText(`${Math.round(this.settings.sfxVolume * 100)}%`);
+    const applyToggleStyle = (row, on) => {
+      row.rowBg.setFillStyle(on ? 0x16314b : 0x12253b, on ? 0.9 : 0.82);
+      row.rowBg.setStrokeStyle(1, on ? 0x558ec4 : 0x3b5e83, on ? 0.9 : 0.74);
+      row.btn.setLabel(on ? 'ON' : 'OFF');
+      row.btn.setPalette(on
+        ? { baseFill: 0x1f5977, hoverFill: 0x2e7197, activeFill: 0x3b88b3, baseStroke: 0x89dbff, hoverStroke: 0xb6ebff, text: '#eaf9ff' }
+        : { baseFill: 0x273a56, hoverFill: 0x344d70, activeFill: 0x406290, baseStroke: 0x688ab4, hoverStroke: 0x8fbbe7, text: '#dce8f8' });
+    };
+
+    applyToggleStyle(this.pauseUi.bgmToggleRow, this.settings.bgmEnabled);
+    applyToggleStyle(this.pauseUi.sfxToggleRow, this.settings.sfxEnabled);
+
+    const bgmPct = Math.round(this.settings.bgmVolume * 100);
+    const sfxPct = Math.round(this.settings.sfxVolume * 100);
+    this.pauseUi.bgmVol.val.setText(`${bgmPct}%`);
+    this.pauseUi.sfxVol.val.setText(`${sfxPct}%`);
+    this.pauseUi.bgmVol.setRatio(this.settings.bgmVolume);
+    this.pauseUi.sfxVol.setRatio(this.settings.sfxVolume);
+
+    const bgmLeftEnabled = this.settings.bgmVolume > 0.001;
+    const bgmRightEnabled = this.settings.bgmVolume < 0.999;
+    const sfxLeftEnabled = this.settings.sfxVolume > 0.001;
+    const sfxRightEnabled = this.settings.sfxVolume < 0.999;
+    this.pauseUi.bgmVol.leftBtn.setEnabled(bgmLeftEnabled);
+    this.pauseUi.bgmVol.rightBtn.setEnabled(bgmRightEnabled);
+    this.pauseUi.sfxVol.leftBtn.setEnabled(sfxLeftEnabled);
+    this.pauseUi.sfxVol.rightBtn.setEnabled(sfxRightEnabled);
+
+    this.pauseUi.bgmVol.lbl.setColor(this.settings.bgmEnabled ? '#b8cce7' : '#7f93ad');
+    this.pauseUi.sfxVol.lbl.setColor(this.settings.sfxEnabled ? '#b8cce7' : '#7f93ad');
+    this.pauseUi.bgmVol.barFill.setFillStyle(this.settings.bgmEnabled ? 0x74d7ff : 0x4d6787, this.settings.bgmEnabled ? 0.96 : 0.7);
+    this.pauseUi.sfxVol.barFill.setFillStyle(this.settings.sfxEnabled ? 0x74d7ff : 0x4d6787, this.settings.sfxEnabled ? 0.96 : 0.7);
   }
 
   saveSettings() {

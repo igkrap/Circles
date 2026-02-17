@@ -7,6 +7,15 @@ import SaveSystem from '../systems/SaveSystem.js';
 const FONT_KR = 'Pretendard, "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, -apple-system, "Segoe UI", Roboto, Arial';
 const WORLD_W = 4800;
 const WORLD_H = 3000;
+const HUD_FONT_DISPLAY = 'Rajdhani, "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif';
+const HUD_FONT_BODY = 'Pretendard, "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif';
+const HUD_COLOR_PANEL = 0x0f1f33;
+const HUD_COLOR_PANEL_DARK = 0x0b1526;
+const HUD_COLOR_PANEL_STROKE = 0x305a83;
+const HUD_COLOR_ACCENT = 0x4cc9f0;
+const HUD_COLOR_TEXT_MAIN = '#e8f3ff';
+const HUD_COLOR_TEXT_SUB = '#9ab4d2';
+const HUD_COLOR_XP = 0x47d3ff;
 
 const CARD_META = {
   ATK_UP: { label: '공격력 강화', desc: '기본 공격 피해 +2' },
@@ -119,73 +128,118 @@ export default class PvpScene extends Phaser.Scene {
 
   createHud() {
     this.ui = {};
-    const font = 'system-ui, -apple-system, Segoe UI, Roboto, Arial';
+    const fontDisplay = HUD_FONT_DISPLAY;
+    const fontBody = HUD_FONT_BODY;
 
-    this.ui.gold = this.add.text(0, 0, '', { fontFamily: font, fontSize: '18px', color: '#ffd700' }).setScrollFactor(0);
-    this.ui.coin = this.add.image(0, 0, 'tex_gold').setScale(0.9).setScrollFactor(0);
-    this.ui.minimapBg = this.add.rectangle(0, 0, 140, 96, 0x101a2c, 0.62).setOrigin(0, 0).setScrollFactor(0);
-    this.ui.minimapBg.setStrokeStyle(1, 0x3b4d75, 0.9);
+    this.ui.topRibbon = this.add.rectangle(0, 0, 360, 50, HUD_COLOR_PANEL_DARK, 0.54).setOrigin(0.5, 0).setScrollFactor(0);
+    this.ui.topRibbon.setStrokeStyle(2, HUD_COLOR_PANEL_STROKE, 0.92);
+    this.ui.topRibbonGlow = this.add.rectangle(0, 0, 356, 2, HUD_COLOR_ACCENT, 0.58).setOrigin(0.5, 0).setScrollFactor(0);
+
+    this.ui.goldPanel = this.add.rectangle(0, 0, 168, 30, HUD_COLOR_PANEL, 0.78).setOrigin(0, 0).setScrollFactor(0);
+    this.ui.goldPanel.setStrokeStyle(1, HUD_COLOR_PANEL_STROKE, 0.95);
+    this.ui.gold = this.add.text(0, 0, '', { fontFamily: fontDisplay, fontSize: '16px', color: '#ffd166' }).setScrollFactor(0);
+    this.ui.coin = this.add.image(0, 0, 'tex_gold').setScale(0.78).setScrollFactor(0);
+
+    this.ui.minimapBg = this.add.rectangle(0, 0, 132, 92, HUD_COLOR_PANEL_DARK, 0.84).setOrigin(0, 0).setScrollFactor(0);
+    this.ui.minimapBg.setStrokeStyle(2, HUD_COLOR_PANEL_STROKE, 0.95);
+    this.ui.minimapHeader = this.add.rectangle(0, 0, 132, 18, 0x132740, 0.95).setOrigin(0, 0).setScrollFactor(0);
+    this.ui.minimapLabel = this.add.text(0, 0, 'SENSOR', {
+      fontFamily: fontDisplay,
+      fontSize: '10px',
+      color: '#9dd8ee'
+    }).setOrigin(0, 0).setScrollFactor(0);
     this.ui.minimap = this.add.graphics().setScrollFactor(0);
 
-    this.ui.stage = this.add.text(this.scale.width / 2, 14, '', { fontFamily: font, fontSize: '18px', color: '#eaf0ff' }).setOrigin(0.5, 0).setScrollFactor(0);
-    this.ui.stageSub = this.add.text(this.scale.width / 2, 36, '', { fontFamily: font, fontSize: '14px', color: '#aab6d6' }).setOrigin(0.5, 0).setScrollFactor(0);
-    this.ui.modeObjective = this.add.text(this.scale.width / 2, 56, '', { fontFamily: font, fontSize: '14px', color: '#8bc6ff' }).setOrigin(0.5, 0).setScrollFactor(0);
-    this.ui.time = this.add.text(this.scale.width - 18, 14, '', { fontFamily: font, fontSize: '18px', color: '#eaf0ff' }).setOrigin(1, 0).setScrollFactor(0);
+    this.ui.stage = this.add.text(this.scale.width / 2, 12, '', {
+      fontFamily: fontDisplay,
+      fontSize: '22px',
+      color: HUD_COLOR_TEXT_MAIN
+    }).setOrigin(0.5, 0).setScrollFactor(0);
+    this.ui.stageSub = this.add.text(this.scale.width / 2, 31, '', {
+      fontFamily: fontBody,
+      fontSize: '12px',
+      color: HUD_COLOR_TEXT_SUB
+    }).setOrigin(0.5, 0).setScrollFactor(0);
+    this.ui.modeObjective = this.add.text(this.scale.width / 2, 47, '', {
+      fontFamily: fontBody,
+      fontSize: '12px',
+      color: '#89d5ff'
+    }).setOrigin(0.5, 0).setScrollFactor(0);
 
-    this.ui.xpBarBg = this.add.rectangle(0, 0, this.scale.width, 10, 0x23304a).setOrigin(0, 1).setScrollFactor(0);
-    this.ui.xpBarFill = this.add.rectangle(0, 0, this.scale.width, 10, 0x7ea0ff).setOrigin(0, 1).setScrollFactor(0);
-    this.ui.xpBarBg.setStrokeStyle(1, 0x3b4d75, 1);
+    this.ui.timePanel = this.add.rectangle(0, 0, 108, 32, HUD_COLOR_PANEL, 0.78).setOrigin(0, 0).setScrollFactor(0);
+    this.ui.timePanel.setStrokeStyle(1, HUD_COLOR_PANEL_STROKE, 0.95);
+    this.ui.time = this.add.text(this.scale.width - 18, 14, '', {
+      fontFamily: fontDisplay,
+      fontSize: '19px',
+      color: HUD_COLOR_TEXT_MAIN
+    }).setOrigin(1, 0).setScrollFactor(0);
 
-    this.ui.statusBg = this.add.rectangle(0, 0, 310, 72, 0x172033, 0.72).setOrigin(0, 0).setScrollFactor(0);
-    this.ui.statusBg.setStrokeStyle(2, 0x3b4d75, 0.95);
-    this.ui.statusLine = this.add.rectangle(0, 0, 0, 10, 0x23304a, 0.95).setOrigin(0, 0).setScrollFactor(0);
-    this.ui.statusLine.setStrokeStyle(1, 0x3b4d75, 1);
-    this.ui.hp = this.add.text(0, 0, '', { fontFamily: font, fontSize: '17px', color: '#eaf0ff' }).setOrigin(0, 0).setScrollFactor(0);
-    this.ui.shield = this.add.text(0, 0, '', { fontFamily: font, fontSize: '17px', color: '#eaf0ff' }).setOrigin(1, 0).setScrollFactor(0);
-    this.ui.synergy = this.add.text(0, 0, '', { fontFamily: font, fontSize: '13px', color: '#8bc6ff' }).setOrigin(0, 0).setScrollFactor(0);
+    this.ui.xpBarBg = this.add.rectangle(0, 0, this.scale.width, 8, 0x0f1d31, 0.98).setOrigin(0, 1).setScrollFactor(0);
+    this.ui.xpBarBg.setStrokeStyle(1, HUD_COLOR_PANEL_STROKE, 1);
+    this.ui.xpBarFill = this.add.rectangle(0, 0, this.scale.width, 8, HUD_COLOR_XP, 0.96).setOrigin(0, 1).setScrollFactor(0);
+    this.ui.xpBarEdge = this.add.rectangle(0, 0, this.scale.width, 1, 0xa8ebff, 0.65).setOrigin(0, 1).setScrollFactor(0);
+
+    this.ui.statusBg = this.add.rectangle(0, 0, 300, 72, HUD_COLOR_PANEL, 0.84).setOrigin(0, 0).setScrollFactor(0);
+    this.ui.statusBg.setStrokeStyle(2, HUD_COLOR_PANEL_STROKE, 0.96);
+    this.ui.statusAccent = this.add.rectangle(0, 0, 4, 70, HUD_COLOR_ACCENT, 0.3).setOrigin(0, 0).setScrollFactor(0);
+    this.ui.statusLine = this.add.rectangle(0, 0, 0, 10, 0x0c1628, 0.98).setOrigin(0, 0).setScrollFactor(0);
+    this.ui.statusLine.setStrokeStyle(1, 0x294d74, 1);
+    this.ui.statusLineFill = this.add.rectangle(0, 0, 0, 8, 0x55d98d, 0.98).setOrigin(0, 0).setScrollFactor(0);
+    this.ui.hp = this.add.text(0, 0, '', { fontFamily: fontBody, fontSize: '15px', color: HUD_COLOR_TEXT_MAIN }).setOrigin(0, 0).setScrollFactor(0);
+    this.ui.shield = this.add.text(0, 0, '', { fontFamily: fontBody, fontSize: '13px', color: '#8fcfff' }).setOrigin(1, 0).setScrollFactor(0);
+    this.ui.synergy = this.add.text(0, 0, '', { fontFamily: fontBody, fontSize: '11px', color: '#79caef' }).setOrigin(0, 0).setScrollFactor(0);
 
     this.ui.skillSlots = [];
     for (let i = 0; i < 4; i += 1) {
-      const bg = this.add.rectangle(0, 0, 56, 56, 0x172033, 0.72).setOrigin(0.5).setScrollFactor(0);
-      const border = this.add.rectangle(0, 0, 56, 56).setOrigin(0.5).setScrollFactor(0);
-      border.setStrokeStyle(2, 0x3b4d75, 1);
+      const bg = this.add.rectangle(0, 0, 52, 52, 0x0f1b2e, 0.86).setOrigin(0.5).setScrollFactor(0);
+      const border = this.add.rectangle(0, 0, 52, 52).setOrigin(0.5).setScrollFactor(0);
+      border.setStrokeStyle(2, 0x33577d, 1);
       const num = this.add.text(0, 0, String(i + 1), {
-        fontFamily: font,
-        fontSize: '13px',
-        color: '#eaf0ff'
+        fontFamily: fontDisplay,
+        fontSize: '12px',
+        color: '#8db1d4'
       }).setOrigin(0, 0).setScrollFactor(0);
       const icon = this.add.text(0, 0, '-', {
-        fontFamily: font,
+        fontFamily: fontDisplay,
         fontSize: '12px',
-        color: '#eaf0ff',
+        color: '#e5f2ff',
         align: 'center'
       }).setOrigin(0.5).setScrollFactor(0);
-      this.ui.skillSlots.push({ bg, border, num, icon, rect: { x: 0, y: 0, w: 56, h: 56 } });
+      this.ui.skillSlots.push({ bg, border, num, icon, rect: { x: 0, y: 0, w: 52, h: 52 } });
     }
 
     const hudDepth = 1000;
     [
+      this.ui.topRibbon,
+      this.ui.topRibbonGlow,
+      this.ui.goldPanel,
       this.ui.gold,
       this.ui.coin,
       this.ui.minimapBg,
+      this.ui.minimapHeader,
+      this.ui.minimapLabel,
       this.ui.stage,
       this.ui.stageSub,
       this.ui.modeObjective,
+      this.ui.timePanel,
       this.ui.time,
       this.ui.xpBarBg,
       this.ui.xpBarFill,
+      this.ui.xpBarEdge,
       this.ui.statusBg,
+      this.ui.statusAccent,
       this.ui.statusLine,
+      this.ui.statusLineFill,
       this.ui.hp,
       this.ui.shield,
       this.ui.synergy
-    ].forEach((obj) => obj.setDepth(hudDepth));
+    ].filter(Boolean).forEach((obj) => obj.setDepth(hudDepth));
     this.ui.minimap.setDepth(hudDepth + 1);
     this.ui.skillSlots.forEach((slot) => {
       slot.bg.setDepth(hudDepth);
-      slot.border.setDepth(hudDepth);
-      slot.num.setDepth(hudDepth + 3);
-      slot.icon.setDepth(hudDepth);
+      slot.border.setDepth(hudDepth + 1);
+      slot.num.setDepth(hudDepth + 2);
+      slot.icon.setDepth(hudDepth + 1);
     });
 
     this.layoutHud(this.scale.width, this.scale.height);
@@ -197,47 +251,61 @@ export default class PvpScene extends Phaser.Scene {
   }
 
   layoutHud(w, h) {
-    const xpH = 10;
-    const pad = 14;
+    const xpH = 8;
+    const pad = w < 720 ? 8 : 12;
 
-    this.ui.coin.setPosition(14, 22);
-    this.ui.gold.setPosition(28, 13);
-    const mmW = w < 720 ? 118 : 144;
-    const mmH = w < 720 ? 78 : 96;
+    const topW = Math.min(380, Math.max(280, Math.floor(w * 0.34)));
+    this.ui.topRibbon.setPosition(Math.floor(w * 0.5), 6).setSize(topW, 50);
+    this.ui.topRibbonGlow.setPosition(Math.floor(w * 0.5), 6).setSize(Math.max(40, topW - 4), 2);
+
+    const goldW = w < 720 ? 150 : 168;
+    this.ui.goldPanel.setPosition(pad, 8).setSize(goldW, 30);
+    this.ui.coin.setPosition(pad + 12, 22);
+    this.ui.gold.setPosition(pad + 26, 11);
+
+    const mmW = w < 720 ? 112 : 132;
+    const mmH = w < 720 ? 78 : 92;
     const mmX = pad;
-    const mmY = 40;
+    const mmY = 42;
+    const mmHeaderH = 18;
     this.ui.minimapBg.setPosition(mmX, mmY).setSize(mmW, mmH);
-    this.ui.minimapLayout = { x: mmX, y: mmY, w: mmW, h: mmH, pad: 4 };
+    this.ui.minimapHeader.setPosition(mmX, mmY).setSize(mmW, mmHeaderH);
+    this.ui.minimapLabel.setPosition(mmX + 8, mmY + 3);
+    this.ui.minimapLayout = { x: mmX, y: mmY + mmHeaderH, w: mmW, h: mmH - mmHeaderH, pad: 5 };
 
-    this.ui.stage.setPosition(w / 2, 14);
-    this.ui.stageSub.setPosition(w / 2, 36);
-    this.ui.modeObjective.setPosition(w / 2, 56);
-    this.ui.time.setPosition(w - 18, 14);
+    this.ui.stage.setPosition(w * 0.5, 10);
+    this.ui.stageSub.setPosition(w * 0.5, 31);
+    this.ui.modeObjective.setPosition(w * 0.5, 47);
+
+    const timeW = w < 720 ? 96 : 108;
+    this.ui.timePanel.setPosition(w - pad - timeW, 8).setSize(timeW, 32);
+    this.ui.time.setPosition(w - pad - 8, 10);
 
     this.ui.xpBarBg.setPosition(0, h);
-    this.ui.xpBarBg.width = w;
+    this.ui.xpBarBg.setSize(w, xpH);
     this.ui.xpBarFill.setPosition(0, h);
-    this.ui.xpBarFill.height = xpH;
+    this.ui.xpBarFill.setSize(w, xpH);
+    this.ui.xpBarEdge.setPosition(0, h - xpH + 1).setSize(w, 1);
 
-    const statusW = Math.min(310, Math.max(230, Math.floor(w * 0.42)));
+    const statusW = Math.min(300, Math.max(220, Math.floor(w * 0.36)));
     const statusH = 72;
     const statusX = pad;
-    const statusY = h - xpH - 10 - statusH;
-    this.ui.statusBg.setPosition(statusX, statusY);
-    this.ui.statusBg.setSize(statusW, statusH);
-    this.ui.statusLine.setPosition(statusX + 14, statusY + 36);
-    this.ui.statusLine.setSize(statusW - 28, 10);
-    this.ui.hp.setPosition(statusX + 14, statusY + 10);
+    const statusY = h - xpH - 8 - statusH;
+    this.ui.statusBg.setPosition(statusX, statusY).setSize(statusW, statusH);
+    this.ui.statusAccent.setPosition(statusX + 1, statusY + 1).setSize(4, statusH - 2);
+    this.ui.statusLine.setPosition(statusX + 14, statusY + 36).setSize(statusW - 28, 10);
+    this.ui.statusLineFill.setPosition(statusX + 15, statusY + 37).setSize(Math.max(0, statusW - 30), 8);
+    this.ui.hp.setPosition(statusX + 14, statusY + 8);
     this.ui.shield.setPosition(statusX + statusW - 14, statusY + 10);
-    this.ui.synergy.setPosition(statusX + 14, statusY + 50);
+    this.ui.synergy.setPosition(statusX + 14, statusY + 54);
     this.ui.statusLayout = { x: statusX, y: statusY, w: statusW, h: statusH };
 
-    const box = w < 720 ? 48 : 56;
-    const gap = w < 720 ? 8 : 10;
+    const box = w < 720 ? 46 : 52;
+    const gap = w < 720 ? 6 : 8;
     const gridW = box * 2 + gap;
     const gridH = box * 2 + gap;
     const gridX = w - pad - gridW;
-    const gridY = h - xpH - 10 - gridH;
+    const gridY = h - xpH - 8 - gridH;
 
     this.ui.skillSlots.forEach((slot, idx) => {
       const r = Math.floor(idx / 2);
@@ -247,8 +315,8 @@ export default class PvpScene extends Phaser.Scene {
       slot.rect = { x, y, w: box, h: box };
       slot.bg.setPosition(x + box * 0.5, y + box * 0.5).setSize(box, box);
       slot.border.setPosition(x + box * 0.5, y + box * 0.5).setSize(box, box);
-      slot.num.setPosition(x + 5, y + 3);
-      slot.icon.setPosition(x + box * 0.5, y + box * 0.5 + 3).setFontSize(Math.max(10, Math.floor(box * 0.22)));
+      slot.num.setPosition(x + 4, y + 2).setFontSize(Math.max(10, Math.floor(box * 0.18)));
+      slot.icon.setPosition(x + box * 0.5, y + box * 0.5 + 2).setFontSize(Math.max(10, Math.floor(box * 0.21)));
     });
   }
 
@@ -289,30 +357,38 @@ export default class PvpScene extends Phaser.Scene {
     const elapsed = Number(this.latestState?.elapsedSec || 0);
     const elapsedInt = Math.max(0, Math.floor(elapsed));
     const stage = 1 + Math.floor(elapsed / 45);
+    const mm = String(Math.floor(elapsedInt / 60)).padStart(2, '0');
+    const ss = String(elapsedInt % 60).padStart(2, '0');
 
     this.ui.gold.setText(`${SaveSystem.getTotalGold()} (+0)`);
-    this.ui.stage.setText(`스테이지 ${stage}`);
+    this.ui.stage.setText(`ARENA ${stage}`);
     this.ui.stageSub.setText('');
     this.ui.modeObjective.setText('PVP 모드');
-    this.ui.modeObjective.setColor('#8bc6ff');
-    this.ui.time.setText(`${elapsedInt}s`);
+    this.ui.modeObjective.setColor('#89d5ff');
+    this.ui.time.setText(`${mm}:${ss}`);
 
     const hpNow = me ? Math.max(0, Math.floor(me.hp)) : 0;
     const hpMax = me ? Math.max(1, Math.floor(me.maxHp)) : 1;
     const hpRatio = hpMax > 0 ? Phaser.Math.Clamp(hpNow / hpMax, 0, 1) : 0;
 
-    this.ui.hp.setColor(hpRatio < 0.35 ? '#ffd0d0' : '#eaf0ff');
-    this.ui.hp.setText(`레벨 ${me ? me.level : 1}  체력 ${hpNow}/${hpMax}`);
+    this.ui.hp.setColor(hpRatio < 0.35 ? '#ff9b9b' : HUD_COLOR_TEXT_MAIN);
+    this.ui.hp.setText(`Lv.${me ? me.level : 1}  HP ${hpNow}/${hpMax}`);
     this.ui.shield.setVisible(false);
     this.ui.shield.setText('');
-    this.ui.synergy.setText('시너지: 없음');
+    this.ui.synergy.setText(enemy ? `상대 Lv.${enemy.level}  HP ${Math.max(0, Math.floor(enemy.hp))}` : '상대 탐색 중');
 
     const ratio = me && me.xpToNext > 0 ? Phaser.Math.Clamp(me.xp / me.xpToNext, 0, 1) : 0;
     this.ui.xpBarFill.width = this.scale.width * ratio;
-    this.ui.statusLine.width = (this.ui.statusLayout.w - 28) * hpRatio;
+    const hpTrackW = Math.max(0, this.ui.statusLayout.w - 30);
+    const hpFillColor = hpRatio < 0.28 ? 0xff7361 : (hpRatio < 0.58 ? 0xffb85c : 0x55d98d);
+    this.ui.statusLineFill.setFillStyle(hpFillColor, 0.98);
+    this.ui.statusLineFill.width = hpTrackW * hpRatio;
+    this.ui.statusAccent.setAlpha(0.24 + (1 - hpRatio) * 0.35);
 
     this.ui.skillSlots.forEach((slot) => {
-      slot.border.setStrokeStyle(2, 0x3b4d75, 1);
+      slot.bg.setFillStyle(0x0d192c, 0.74);
+      slot.num.setColor('#6e89a5');
+      slot.border.setStrokeStyle(2, 0x2c4866, 1);
       slot.icon.setText('-');
     });
 
@@ -330,8 +406,20 @@ export default class PvpScene extends Phaser.Scene {
     const innerW = w - pad * 2;
     const innerH = h - pad * 2;
 
-    g.fillStyle(0x0c1322, 0.8);
+    g.fillStyle(0x081223, 0.92);
     g.fillRect(innerX, innerY, innerW, innerH);
+    g.lineStyle(1, 0x23486c, 0.35);
+    g.strokeRect(innerX, innerY, innerW, innerH);
+
+    const gx = innerX + innerW * 0.5;
+    const gy = innerY + innerH * 0.5;
+    g.lineStyle(1, 0x274d72, 0.22);
+    g.beginPath();
+    g.moveTo(gx, innerY);
+    g.lineTo(gx, innerY + innerH);
+    g.moveTo(innerX, gy);
+    g.lineTo(innerX + innerW, gy);
+    g.strokePath();
 
     const toMini = (wx, wy) => ({
       x: innerX + Phaser.Math.Clamp(wx / WORLD_W, 0, 1) * innerW,
@@ -340,18 +428,34 @@ export default class PvpScene extends Phaser.Scene {
 
     for (const enemy of this.enemies.values()) {
       const p = toMini(enemy.x, enemy.y);
-      g.fillStyle(0xff8f8f, 0.8);
+      g.fillStyle(0xff8d6f, 0.86);
       g.fillCircle(p.x, p.y, 1.4);
     }
 
     for (const [sid, player] of this.players.entries()) {
       const p = toMini(player.x, player.y);
-      g.fillStyle(sid === this.selfSid ? 0x7ea0ff : 0xff7e9f, 1);
-      g.fillCircle(p.x, p.y, 2.6);
+      if (sid === this.selfSid) {
+        g.fillStyle(0xb5ecff, 1);
+        g.fillCircle(p.x, p.y, 2.2);
+        g.lineStyle(1, 0x4cc9f0, 0.9);
+        g.strokeCircle(p.x, p.y, 3.6);
+      } else {
+        g.fillStyle(0xffb1a6, 0.95);
+        g.fillCircle(p.x, p.y, 2.2);
+        g.lineStyle(1, 0xff8d6f, 0.9);
+        g.strokeCircle(p.x, p.y, 3.4);
+      }
     }
 
-    g.lineStyle(1, 0x3b4d75, 0.9);
-    g.strokeRect(innerX, innerY, innerW, innerH);
+    const cam = this.cameras?.main;
+    if (cam?.worldView) {
+      const vx = innerX + cam.worldView.x / WORLD_W * innerW;
+      const vy = innerY + cam.worldView.y / WORLD_H * innerH;
+      const vw = cam.worldView.width / WORLD_W * innerW;
+      const vh = cam.worldView.height / WORLD_H * innerH;
+      g.lineStyle(1, 0x4cc9f0, 0.55);
+      g.strokeRect(vx, vy, vw, vh);
+    }
   }
 
   async connect() {
