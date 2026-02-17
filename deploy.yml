@@ -30,19 +30,18 @@ jobs:
       - name: Install
         run: npm ci
 
-      - name: Validate frontend env
-        env:
-          VITE_PVP_SERVER_URL: ${{ vars.VITE_PVP_SERVER_URL }}
-          VITE_GOOGLE_CLIENT_ID: ${{ vars.VITE_GOOGLE_CLIENT_ID }}
-        run: |
-          test -n "$VITE_PVP_SERVER_URL" || (echo "Missing repo variable: VITE_PVP_SERVER_URL" && exit 1)
-          test -n "$VITE_GOOGLE_CLIENT_ID" || (echo "Missing repo variable: VITE_GOOGLE_CLIENT_ID" && exit 1)
-
       - name: Build
         env:
           VITE_PVP_SERVER_URL: ${{ vars.VITE_PVP_SERVER_URL }}
           VITE_GOOGLE_CLIENT_ID: ${{ vars.VITE_GOOGLE_CLIENT_ID }}
-        run: npm run build
+        run: |
+          export VITE_PVP_SERVER_URL="${VITE_PVP_SERVER_URL:-http://localhost:8788}"
+          export VITE_GOOGLE_CLIENT_ID="${VITE_GOOGLE_CLIENT_ID:-}"
+          echo "VITE_PVP_SERVER_URL=$VITE_PVP_SERVER_URL"
+          if [ -z "$VITE_GOOGLE_CLIENT_ID" ]; then
+            echo "VITE_GOOGLE_CLIENT_ID is empty (Google login will be disabled)"
+          fi
+          npm run build
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
