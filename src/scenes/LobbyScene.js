@@ -776,13 +776,24 @@ export default class LobbyScene extends Phaser.Scene {
       friendPanel.chatBox.width = chatMsgW;
       friendPanel.chatBox.height = chatMsgH;
       friendPanel.chatHintText.setPosition(friendPanel.chatBox.x - chatMsgW * 0.5 + 8, friendPanel.chatBox.y - chatMsgH * 0.5 + 8);
-      const chatInputW = Math.max(150, cards.chat.w - 94);
+      const sendBtnW = isMobileUi ? 82 : 68;
+      const sendBtnRightInset = 8;
+      const chatInputGap = 8;
+      const chatInputMinW = 100;
+      const chatInputW = Math.max(chatInputMinW, cards.chat.w - (sendBtnW + sendBtnRightInset + chatInputGap + 8));
       friendPanel.chatInputBox.setPosition(cards.chat.x + 8 + chatInputW * 0.5, chatInputY);
       if (typeof friendPanel.chatInputBox.setSize === 'function') friendPanel.chatInputBox.setSize(chatInputW, 28);
       friendPanel.chatInputBox.width = chatInputW;
       friendPanel.chatInputText.setPosition(friendPanel.chatInputBox.x - chatInputW * 0.5 + 8, chatInputY);
-      friendPanel.sendBtnBg?.setPosition(cards.chat.x + cards.chat.w - 36, chatInputY);
-      friendPanel.sendBtnText?.setPosition(cards.chat.x + cards.chat.w - 36, chatInputY);
+      friendPanel.sendBtnBg?.setPosition(cards.chat.x + cards.chat.w - sendBtnRightInset - sendBtnW * 0.5, chatInputY);
+      friendPanel.sendBtnText?.setPosition(cards.chat.x + cards.chat.w - sendBtnRightInset - sendBtnW * 0.5, chatInputY);
+      if (typeof friendPanel.sendBtnBg?.setSize === 'function') {
+        friendPanel.sendBtnBg.setSize(sendBtnW, isMobileUi ? 28 : 26);
+      }
+      if (friendPanel.chatInputBox) root.bringToTop(friendPanel.chatInputBox);
+      if (friendPanel.chatInputText) root.bringToTop(friendPanel.chatInputText);
+      if (friendPanel.sendBtnBg) root.bringToTop(friendPanel.sendBtnBg);
+      if (friendPanel.sendBtnText) root.bringToTop(friendPanel.sendBtnText);
 
       const chatArea = { x: friendPanel.chatBox.x - chatMsgW * 0.5, y: friendPanel.chatBox.y - chatMsgH * 0.5, w: chatMsgW, h: chatMsgH };
 
@@ -916,7 +927,12 @@ export default class LobbyScene extends Phaser.Scene {
         fontSize: '12px',
         color: '#8fa4cd'
       }).setOrigin(0, 0);
-      const chatInputW = Math.max(140, rightW - 90);
+      const sendBtnW = isMobileUi ? 82 : 68;
+      const sendBtnH = isMobileUi ? 28 : 26;
+      const sendBtnRightInset = 8;
+      const chatInputGap = 8;
+      const chatInputMinW = 100;
+      const chatInputW = Math.max(chatInputMinW, rightW - (sendBtnW + sendBtnRightInset + chatInputGap + 8));
       const chatInputBox = this.add.rectangle(rightX + chatInputW * 0.5, panelBottom - 36, chatInputW, 28, 0x10213c, 0.98)
         .setStrokeStyle(1, 0x7ea0ff, 0.8)
         .setInteractive({ useHandCursor: true });
@@ -938,13 +954,23 @@ export default class LobbyScene extends Phaser.Scene {
           void sendFriendChat();
         }
       };
-      const sendBtn = mkPanelBtn(rightX + rightW - 34, chatInputBox.y, 68, 26, '전송', () => {
-        if (isMobileUi) {
-          promptMobileChatInput(true);
-          return;
+      const sendBtn = mkPanelBtn(
+        rightX + rightW - sendBtnRightInset - sendBtnW * 0.5,
+        chatInputBox.y,
+        sendBtnW,
+        sendBtnH,
+        '보내기',
+        () => {
+          if (isMobileUi) {
+            promptMobileChatInput(true);
+            return;
+          }
+          void sendFriendChat();
         }
-        void sendFriendChat();
-      });
+      );
+      sendBtn.b.setFillStyle(0x35507a, 0.98);
+      sendBtn.b.setStrokeStyle(1, 0xffd77b, 0.9);
+      sendBtn.t.setColor('#fff3cf');
       inputBox.on('pointerdown', () => {
         if (isMobileUi) {
           const raw = window.prompt('친구 태그 입력', tagInputValue || '');
