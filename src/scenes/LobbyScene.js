@@ -5,6 +5,7 @@ import AuthSystem from '../systems/AuthSystem.js';
 import FriendSystem from '../systems/FriendSystem.js';
 import ProgressSyncSystem from '../systems/ProgressSyncSystem.js';
 import { getPvpServerBaseUrl } from '../utils/network.js';
+import { isMobileDevice } from '../utils/device.js';
 
 const FONT_KR = 'Pretendard, "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, -apple-system, "Segoe UI", Roboto, Arial';
 
@@ -122,6 +123,7 @@ export default class LobbyScene extends Phaser.Scene {
   create() {
     const w = this.scale.width;
     const h = this.scale.height;
+    const isMobileUi = isMobileDevice();
 
     this.sound.stopAll();
     const settings = SettingsSystem.load();
@@ -407,12 +409,7 @@ export default class LobbyScene extends Phaser.Scene {
         };
         if (authSession?.user && friendData?.me?.tag) authSession.user.tag = String(friendData.me.tag);
         renderFriendPanelRows();
-        if (friendPanel?.statusText) {
-          friendPanel.statusText.setText('준비 완료');
-          this.time.delayedCall(900, () => {
-            if (friendPanel?.statusText) friendPanel.statusText.setText('');
-          });
-        }
+        if (friendPanel?.statusText) friendPanel.statusText.setText('');
         void refreshFriendBadge();
       } catch (err) {
         if (handleFriendAuthError(err)) return;
@@ -477,6 +474,15 @@ export default class LobbyScene extends Phaser.Scene {
         root.setVisible(false);
       });
       inputBox.on('pointerdown', () => {
+        if (isMobileUi) {
+          const raw = window.prompt('친구 태그 입력', tagInputValue || '');
+          if (raw == null) return;
+          tagInputValue = String(raw).trim().toUpperCase().slice(0, 16);
+          inputText.setText(tagInputValue || '태그 입력');
+          tagInputFocused = false;
+          inputBox.setStrokeStyle(1, 0x7ea0ff, 0.8);
+          return;
+        }
         tagInputFocused = true;
         inputBox.setStrokeStyle(1, 0xffd77b, 0.95);
       });

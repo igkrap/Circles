@@ -45,6 +45,7 @@ const SHOT_ARC_DOT = 0.84;
 const MAX_HP_BASE = 50;
 const MOVE_SPEED_BASE = 270;
 const MAX_NET_MOVE_SPEED = 620;
+const COOP_FINAL_STAGE = 30;
 
 const ENEMY_CONTACT_DAMAGE = {
   scout: 7,
@@ -1265,6 +1266,9 @@ class BattleSurvivalRoom extends Room {
     this.pveSpawnAccMs = 0;
     this.pveSyncAccMs = 0;
     this.pveSeq = 1;
+    this.coopStage = 1;
+    this.coopStageKills = 0;
+    this.coopStageKillGoal = this.getCoopStageKillGoal(1);
     this.startedAt = Date.now();
     this.roundStartAt = 0;
     this.setSimulationInterval((dt) => this.updatePve(dt));
@@ -1280,8 +1284,10 @@ class BattleSurvivalRoom extends Room {
         prevInput.my = imy;
       }
       this.playerInputs.set(c.sessionId, prevInput);
+      const auth = this.sessionAuth.get(c.sessionId);
+      const fixedName = String(auth?.name || st.name || 'Player');
       if (this.state.phase !== 'running') {
-        st.name = String(msg?.name || st.name || 'Player');
+        st.name = fixedName;
         const fax = Number(msg?.ax);
         const fay = Number(msg?.ay);
         if (Number.isFinite(fax) && Number.isFinite(fay)) {
@@ -1291,7 +1297,7 @@ class BattleSurvivalRoom extends Room {
         }
         return;
       }
-      st.name = String(msg?.name || st.name || 'Player');
+      st.name = fixedName;
       const fax = Number(msg?.ax);
       const fay = Number(msg?.ay);
       if (Number.isFinite(fax) && Number.isFinite(fay)) {
@@ -1435,6 +1441,7 @@ class BattleSurvivalRoom extends Room {
       if (e.hp <= 0) {
         const xpGain = e.type === 'elite' ? 28 : e.type === 'tank' ? 16 : 10;
         this.grantPvpXp(fromSid, xpGain);
+        if (this.isCoopMode) this.onCoopEnemyKilled();
         this.pveEnemies.delete(id);
         this.state.enemies.delete(id);
       } else {
@@ -1917,6 +1924,11 @@ class BattleSurvivalRoom extends Room {
 
     if (this.clients.length < 2) {
       client.send('match.waiting', { players: this.clients.length });
+      if (this.isCoopMode) client.send('coop.stage', {
+        stage: this.coopStage,
+        stageKills: this.coopStageKills,
+        stageKillGoal: this.coopStageKillGoal
+      });
     } else {
       const centerX = WORLD_W * 0.5;
       const centerY = WORLD_H * 0.5;
@@ -1957,6 +1969,9 @@ class BattleSurvivalRoom extends Room {
       this.pveSpawnAccMs = 0;
       this.pveSyncAccMs = 0;
       this.pveSeq = 1;
+      this.coopStage = 1;
+      this.coopStageKills = 0;
+      this.coopStageKillGoal = this.getCoopStageKillGoal(1);
       this.pveEnemies.clear();
       this.state.enemies.clear();
       this.broadcast('match.start', {
@@ -1968,7 +1983,54 @@ class BattleSurvivalRoom extends Room {
         centerY,
         spread
       });
+      if (this.isCoopMode) {
+        this.broadcast('coop.stage', {
+          stage: this.coopStage,
+          stageKills: this.coopStageKills,
+          stageKillGoal: this.coopStageKillGoal
+        });
+      }
     }
+  }
+
+  getCoopStageKillGoal(stage) {
+    const s = Math.max(1, Math.floor(Number(stage) || 1));
+    return 18 + 5 * (s - 1);
+  }
+
+  onCoopEnemyKilled() {
+    if (!this.isCoopMode) return;
+    if (this.state.phase !== 'running') return;
+    this.coopStageKills += 1;
+    if (this.coopStageKills < this.coopStageKillGoal) {
+      this.broadcast('coop.stage', {
+        stage: this.coopStage,
+        stageKills: this.coopStageKills,
+        stageKillGoal: this.coopStageKillGoal
+      });
+      return;
+    }
+    const clearedStage = this.coopStage;
+    if (clearedStage >= COOP_FINAL_STAGE) {
+      this.broadcast('coop.stage', {
+        stage: this.coopStage,
+        stageKills: this.coopStageKillGoal,
+        stageKillGoal: this.coopStageKillGoal,
+        clearedStage,
+        finished: true
+      });
+      this.finalizeMatch('', 'stage_clear');
+      return;
+    }
+    this.coopStage += 1;
+    this.coopStageKills = 0;
+    this.coopStageKillGoal = this.getCoopStageKillGoal(this.coopStage);
+    this.broadcast('coop.stage', {
+      stage: this.coopStage,
+      stageKills: this.coopStageKills,
+      stageKillGoal: this.coopStageKillGoal,
+      clearedStage
+    });
   }
 
   finalizeMatch(winnerSid, reason) {

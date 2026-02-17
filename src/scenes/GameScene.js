@@ -161,6 +161,9 @@ export default class GameScene extends Phaser.Scene {
     this.pvpHitSeq = 1;
     this.pvpPingMs = null;
     this.pvpPingAccMs = 0;
+    this.coopStage = 1;
+    this.coopStageKills = 0;
+    this.coopStageKillGoal = 18;
     this.runGold = 0;
     this.totalGold = SaveSystem.getTotalGold();
     this.levelupActive = false;
@@ -737,6 +740,23 @@ export default class GameScene extends Phaser.Scene {
       if (!Number.isFinite(clientTs) || clientTs <= 0) return;
       const rtt = Math.max(0, Date.now() - clientTs);
       this.pvpPingMs = rtt;
+    });
+    this.pvpRoom.onMessage('coop.stage', (msg) => {
+      if (!this.isCoopMode) return;
+      const stage = Math.max(1, Math.floor(Number(msg?.stage || this.coopStage || 1)));
+      const stageKills = Math.max(0, Math.floor(Number(msg?.stageKills || 0)));
+      const stageKillGoal = Math.max(1, Math.floor(Number(msg?.stageKillGoal || this.coopStageKillGoal || 1)));
+      const clearedStage = Math.max(0, Math.floor(Number(msg?.clearedStage || 0)));
+      const prevStage = this.coopStage;
+      this.coopStage = stage;
+      this.coopStageKills = Math.min(stageKillGoal, stageKills);
+      this.coopStageKillGoal = stageKillGoal;
+      if (clearedStage > 0 || stage > prevStage) {
+        new FloatingText(this, this.player.x, this.player.y - 70, `스테이지 ${clearedStage || prevStage} 클리어`, { fontSize: 20, color: '#7ea0ff' });
+      }
+      if (msg?.finished) {
+        this.coopStageKills = this.coopStageKillGoal;
+      }
     });
     this.pvpRoom.onStateChange((state) => {
       if (!state?.players) return;
@@ -2263,8 +2283,13 @@ export default class GameScene extends Phaser.Scene {
     if (flags.MAGE) sy.push('마법사(액티브 쿨타임 -40%)');
     this.ui.synergy.setText(sy.length > 0 ? sy.join(', ') : '');
     if (this.isPvpMode) {
-      this.ui.stage.setText(this.isCoopMode ? 'CO-OP' : 'PVP');
-      this.ui.stageSub.setText('');
+      if (this.isCoopMode) {
+        this.ui.stage.setText(`협동 스테이지 ${this.coopStage}`);
+        this.ui.stageSub.setText(`${this.coopStageKills}/${this.coopStageKillGoal}`);
+      } else {
+        this.ui.stage.setText('PVP');
+        this.ui.stageSub.setText('');
+      }
     } else {
       this.ui.stage.setText(`스테이지 ${stage}`);
       this.ui.stageSub.setText(`${this.stageDirector.stageKills}/${spec.killGoal}`);
@@ -4166,6 +4191,7 @@ export default class GameScene extends Phaser.Scene {
     const timeSec = this.elapsedMs / 1000;
     const timeBonus = Math.floor(timeSec * 7);
     const totalScore = this.baseScore + timeBonus;
+    const finalStage = this.isCoopMode ? this.coopStage : this.stageDirector.stage;
     const displayName = String(this.pvpUser?.name || this.pvpProfile?.name || '플레이어');
     const modeForRecord = this.displayMode || this.runMode;
     SaveSystem.saveRecord({
@@ -4173,7 +4199,7 @@ export default class GameScene extends Phaser.Scene {
       totalScore,
       timeSec,
       kills: this.kills,
-      stage: this.stageDirector.stage,
+      stage: finalStage,
       level: this.progression.level,
       mode: modeForRecord
     });
@@ -4184,7 +4210,7 @@ export default class GameScene extends Phaser.Scene {
       };
       void LeaderboardSystem.submitRun(session, {
         mode: modeForRecord,
-        stage: this.stageDirector.stage,
+        stage: finalStage,
         score: totalScore,
         timeSec,
         kills: this.kills
@@ -4192,7 +4218,7 @@ export default class GameScene extends Phaser.Scene {
     }
     this.bgm?.stop();
     this.scene.start('GameOver', {
-      stage: this.stageDirector.stage,
+      stage: finalStage,
       runGold: this.runGold,
       level: this.progression.level,
       kills: this.kills,
