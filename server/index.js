@@ -46,6 +46,9 @@ const MAX_HP_BASE = 50;
 const MOVE_SPEED_BASE = 270;
 const MAX_NET_MOVE_SPEED = 620;
 const COOP_FINAL_STAGE = 30;
+const COOP_REVIVE_RADIUS = 84;
+const COOP_REVIVE_HOLD_MS = 5000;
+const COOP_REVIVE_HP_RATIO = 0.2;
 
 const ENEMY_CONTACT_DAMAGE = {
   scout: 7,
@@ -1415,6 +1418,8 @@ class BattleSurvivalRoom extends Room {
     this.coopStage = 1;
     this.coopStageKills = 0;
     this.coopStageKillGoal = this.getCoopStageKillGoal(1);
+    this.coopReviveHolds = new Map();
+    this.coopReviveStatusSig = new Map();
     this.startedAt = Date.now();
     this.roundStartAt = 0;
     this.setSimulationInterval((dt) => this.updatePve(dt));
@@ -1550,7 +1555,7 @@ class BattleSurvivalRoom extends Room {
         if (!consumeUniqueHit(this.seenHitIds, hitKey, now, 5000)) return;
       }
       const attacker = this.state.players.get(fromSid);
-      if (!attacker) return;
+      if (!attacker || attacker.hp <= 0) return;
       const aimMsg = normalizeAim(msg?.ax, msg?.ay, attacker.facingX, attacker.facingY);
       const combat = this.getCombatProfile(fromSid);
       const dx = Number(e.x) - Number(attacker.x);
@@ -1683,6 +1688,32 @@ class BattleSurvivalRoom extends Room {
         serverTs: Date.now()
       });
     });
+
+    this.onMessage('coop.revive.hold', (c, msg) => {
+      if (!this.isCoopMode) return;
+      const sid = c.sessionId;
+      const active = !!msg?.active;
+      if (!active || this.state.phase !== 'running') {
+        if (this.coopReviveHolds.delete(sid)) {
+          this.pushCoopReviveStatus(true);
+        }
+        return;
+      }
+      const targetSid = this.findCoopReviveTargetSid(sid);
+      if (!targetSid) {
+        if (this.coopReviveHolds.delete(sid)) {
+          this.pushCoopReviveStatus(true);
+        }
+        return;
+      }
+      const prev = this.coopReviveHolds.get(sid);
+      if (prev?.targetSid === targetSid) return;
+      this.coopReviveHolds.set(sid, {
+        targetSid,
+        startedAt: Date.now()
+      });
+      this.pushCoopReviveStatus(true);
+    });
   }
 
   refreshCoopPartyState() {
@@ -1722,6 +1753,142 @@ class BattleSurvivalRoom extends Room {
       };
     }
     return base;
+  }
+
+  findCoopReviveTargetSid(reviverSid) {
+    if (!this.isCoopMode) return '';
+    const reviver = this.state.players.get(reviverSid);
+    if (!reviver || reviver.hp <= 0) return '';
+    const maxDistSq = COOP_REVIVE_RADIUS * COOP_REVIVE_RADIUS;
+    let bestSid = '';
+    let bestDistSq = Number.POSITIVE_INFINITY;
+    for (const [sid, st] of this.state.players.entries()) {
+      if (sid === reviverSid || !st || st.hp > 0) continue;
+      const dx = Number(st.x) - Number(reviver.x);
+      const dy = Number(st.y) - Number(reviver.y);
+      const distSq = dx * dx + dy * dy;
+      if (distSq > maxDistSq) continue;
+      if (distSq < bestDistSq) {
+        bestDistSq = distSq;
+        bestSid = sid;
+      }
+    }
+    return bestSid;
+  }
+
+  isCoopReviveHoldValid(reviverSid, hold) {
+    if (!this.isCoopMode || !hold) return false;
+    const reviver = this.state.players.get(reviverSid);
+    if (!reviver || reviver.hp <= 0) return false;
+    const target = this.state.players.get(String(hold.targetSid || ''));
+    if (!target || target.hp > 0) return false;
+    const dx = Number(target.x) - Number(reviver.x);
+    const dy = Number(target.y) - Number(reviver.y);
+    const distSq = dx * dx + dy * dy;
+    return distSq <= COOP_REVIVE_RADIUS * COOP_REVIVE_RADIUS;
+  }
+
+  buildCoopReviveStatusFor(clientSid, now) {
+    const status = {
+      canHold: false,
+      holdActive: false,
+      holdTargetSid: '',
+      holdStartedAt: 0,
+      holdDurationMs: COOP_REVIVE_HOLD_MS,
+      beingRevived: false,
+      revivedBySid: '',
+      beingRevivedStartedAt: 0
+    };
+    if (!this.isCoopMode || this.state.phase !== 'running') return status;
+    const me = this.state.players.get(clientSid);
+    if (!me) return status;
+
+    if (me.hp > 0) {
+      const inRangeTargetSid = this.findCoopReviveTargetSid(clientSid);
+      if (inRangeTargetSid) {
+        status.canHold = true;
+        status.holdTargetSid = inRangeTargetSid;
+      }
+      const hold = this.coopReviveHolds.get(clientSid);
+      if (this.isCoopReviveHoldValid(clientSid, hold)) {
+        status.holdActive = true;
+        status.holdTargetSid = String(hold.targetSid || '');
+        status.holdStartedAt = Math.max(0, Math.floor(Number(hold.startedAt || now)));
+      }
+      return status;
+    }
+
+    for (const [reviverSid, hold] of this.coopReviveHolds.entries()) {
+      if (String(hold?.targetSid || '') !== clientSid) continue;
+      if (!this.isCoopReviveHoldValid(reviverSid, hold)) continue;
+      status.beingRevived = true;
+      status.revivedBySid = reviverSid;
+      status.beingRevivedStartedAt = Math.max(0, Math.floor(Number(hold.startedAt || now)));
+      break;
+    }
+    return status;
+  }
+
+  pushCoopReviveStatus(force = false) {
+    if (!this.isCoopMode) return;
+    const now = Date.now();
+    for (const client of this.clients) {
+      const sid = client.sessionId;
+      const status = this.buildCoopReviveStatusFor(sid, now);
+      const sig = [
+        status.canHold ? 1 : 0,
+        status.holdActive ? 1 : 0,
+        status.holdTargetSid,
+        status.holdStartedAt,
+        status.holdDurationMs,
+        status.beingRevived ? 1 : 0,
+        status.revivedBySid,
+        status.beingRevivedStartedAt
+      ].join('|');
+      if (!force && this.coopReviveStatusSig.get(sid) === sig) continue;
+      this.coopReviveStatusSig.set(sid, sig);
+      client.send('coop.revive.status', status);
+    }
+  }
+
+  updateCoopRevives(now) {
+    if (!this.isCoopMode) return;
+    if (this.state.phase !== 'running') {
+      if (this.coopReviveHolds.size > 0) {
+        this.coopReviveHolds.clear();
+        this.pushCoopReviveStatus(true);
+      }
+      return;
+    }
+
+    let changed = false;
+    for (const [reviverSid, hold] of Array.from(this.coopReviveHolds.entries())) {
+      if (!this.isCoopReviveHoldValid(reviverSid, hold)) {
+        this.coopReviveHolds.delete(reviverSid);
+        changed = true;
+        continue;
+      }
+      const elapsed = now - Math.max(0, Math.floor(Number(hold.startedAt || 0)));
+      if (elapsed < COOP_REVIVE_HOLD_MS) continue;
+      const targetSid = String(hold.targetSid || '');
+      const target = this.state.players.get(targetSid);
+      if (!target || target.hp > 0) {
+        this.coopReviveHolds.delete(reviverSid);
+        changed = true;
+        continue;
+      }
+      target.hp = Math.max(1, Math.floor(Number(target.maxHp || MAX_HP_BASE) * COOP_REVIVE_HP_RATIO));
+      this.coopReviveHolds.delete(reviverSid);
+      changed = true;
+      this.broadcast('coop.revive.done', {
+        bySid: reviverSid,
+        targetSid,
+        hp: target.hp,
+        maxHp: target.maxHp,
+        ratio: COOP_REVIVE_HP_RATIO
+      });
+    }
+    if (changed) this.pushCoopReviveStatus(true);
   }
 
   applyServerLevelupPick(sid, key) {
@@ -1946,6 +2113,10 @@ class BattleSurvivalRoom extends Room {
     const elapsedSec = (now - this.startedAt) / 1000;
     this.state.elapsedSec = elapsedSec;
     this.updatePlayerMovement(dtSec);
+    if (this.isCoopMode) {
+      this.updateCoopRevives(now);
+      this.pushCoopReviveStatus();
+    }
 
     for (const [sid, st] of this.state.players.entries()) {
       if (!st || st.hp <= 0) continue;
@@ -2161,6 +2332,7 @@ class BattleSurvivalRoom extends Room {
       }
     }
     this.refreshCoopPartyState();
+    if (this.isCoopMode) this.pushCoopReviveStatus(true);
   }
 
   getCoopStageKillGoal(stage) {
@@ -2206,6 +2378,8 @@ class BattleSurvivalRoom extends Room {
   finalizeMatch(winnerSid, reason) {
     if (this.state.phase === 'ended') return;
     this.state.phase = 'ended';
+    this.coopReviveHolds.clear();
+    this.coopReviveStatusSig.clear();
     this.refreshCoopPartyState();
     this.pveEnemies.clear();
     this.state.enemies.clear();
@@ -2234,6 +2408,14 @@ class BattleSurvivalRoom extends Room {
   }
 
   onLeave(client) {
+    let reviveChanged = false;
+    if (this.coopReviveHolds.delete(client.sessionId)) reviveChanged = true;
+    for (const [sid, hold] of Array.from(this.coopReviveHolds.entries())) {
+      if (String(hold?.targetSid || '') !== client.sessionId) continue;
+      this.coopReviveHolds.delete(sid);
+      reviveChanged = true;
+    }
+    this.coopReviveStatusSig.delete(client.sessionId);
     this.state.players.delete(client.sessionId);
     this.sessionAuth.delete(client.sessionId);
     this.playerCombat.delete(client.sessionId);
@@ -2256,6 +2438,9 @@ class BattleSurvivalRoom extends Room {
         const winnerSid = this.clients.map((x) => x.sessionId).find((sid) => sid !== client.sessionId) || '';
         if (winnerSid) this.finalizeMatch(winnerSid, 'disconnect');
       }
+    }
+    if (this.isCoopMode && this.state.phase === 'running' && reviveChanged) {
+      this.pushCoopReviveStatus(true);
     }
     this.refreshCoopPartyState();
   }

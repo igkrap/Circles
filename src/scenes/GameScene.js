@@ -41,6 +41,7 @@ const SCORE_PER_TYPE = {
 const DEFENSE_CORE_REGEN_PER_SEC = 3;
 const DEFENSE_CORE_REGEN_DELAY_SEC = 2.5;
 const STAGE_MODE_FINAL_STAGE = 30;
+const COOP_REVIVE_HOLD_MS = 5000;
 
 function getMmrTierLabel(mmr) {
   const v = Number(mmr || 1000);
@@ -164,6 +165,11 @@ export default class GameScene extends Phaser.Scene {
     this.coopStage = 1;
     this.coopStageKills = 0;
     this.coopStageKillGoal = 18;
+    this.coopReviveState = this.makeDefaultCoopReviveState();
+    this.coopReviveHoldIntent = false;
+    this.coopReviveHoldSources = { pointer: false, key: false };
+    this.reviveHoldKey = null;
+    this.coopRevivePointerUpHandler = null;
     this.runGold = 0;
     this.totalGold = SaveSystem.getTotalGold();
     this.levelupActive = false;
@@ -300,6 +306,7 @@ export default class GameScene extends Phaser.Scene {
     this.levelUpOverlay = new LevelUpOverlay(this, (key) => this.chooseLevelup(key));
     this.keyHandler = (event) => this.onKeyDown(event);
     this.input.keyboard.on('keydown', this.keyHandler);
+    this.reviveHoldKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.E);
     if (this.isPvpMode) {
       this.connectPvp().catch((err) => {
         const msg = String(err?.message || err || '').slice(0, 90);
@@ -309,6 +316,13 @@ export default class GameScene extends Phaser.Scene {
 
     this.events.once('shutdown', () => {
       this.input.keyboard.off('keydown', this.keyHandler);
+      if (this.coopReviveHoldIntent && this.pvpRoom) {
+        this.pvpRoom.send('coop.revive.hold', { active: false });
+      }
+      if (this.coopRevivePointerUpHandler) {
+        this.input.off('pointerup', this.coopRevivePointerUpHandler);
+        this.coopRevivePointerUpHandler = null;
+      }
       this.input.setDefaultCursor('default');
       if (this.sys?.game?.canvas) this.sys.game.canvas.style.cursor = 'default';
       this.levelUpOverlay.destroy();
@@ -461,6 +475,7 @@ export default class GameScene extends Phaser.Scene {
       this.pvpStatusText?.setText(this.isCoopMode ? '협동 파트너 매칭 대기 중...' : 'PVP 상대 매칭 대기 중...');
     });
     this.pvpRoom.onMessage('match.start', (msg) => {
+      if (this.isCoopMode) this.resetCoopReviveState(true);
       const startsInMs = Math.max(1000, Math.floor(Number(msg?.startsInMs || 5000)));
       const centerX = Number(msg?.centerX);
       const centerY = Number(msg?.centerY);
@@ -485,6 +500,7 @@ export default class GameScene extends Phaser.Scene {
       this.beginPvpRoundCountdown(startsInMs);
     });
     this.pvpRoom.onMessage('match.go', () => {
+      if (this.isCoopMode) this.resetCoopReviveState(true);
       this.startPvpRoundNow();
     });
     this.pvpRoom.onMessage('pvp.profile', (profile) => {
@@ -529,6 +545,7 @@ export default class GameScene extends Phaser.Scene {
     this.pvpRoom.onMessage('match.end', (msg) => {
       if (this.pvpMatchEnded) return;
       this.pvpMatchEnded = true;
+      if (this.isCoopMode) this.resetCoopReviveState(true);
       const winnerSid = String(msg?.winnerSid || '');
       const win = winnerSid === this.pvpSelfSid;
       if (this.isCoopMode) {
@@ -758,6 +775,12 @@ export default class GameScene extends Phaser.Scene {
         this.coopStageKills = this.coopStageKillGoal;
       }
     });
+    this.pvpRoom.onMessage('coop.revive.status', (msg) => {
+      this.applyCoopReviveStatus(msg);
+    });
+    this.pvpRoom.onMessage('coop.revive.done', (msg) => {
+      this.onCoopReviveDone(msg);
+    });
     this.pvpRoom.onStateChange((state) => {
       if (!state?.players) return;
       const phase = String(state?.phase || '');
@@ -821,9 +844,11 @@ export default class GameScene extends Phaser.Scene {
       }
     });
     this.pvpRoom.onLeave(() => {
+      if (this.isCoopMode) this.resetCoopReviveState(false);
       this.pvpStatusText?.setText(this.isCoopMode ? '협동 연결 종료' : 'PVP 연결 종료');
     });
     this.pvpRoom.onError((_code, message) => {
+      if (this.isCoopMode) this.resetCoopReviveState(false);
       this.pvpStatusText?.setText(`${this.isCoopMode ? '협동' : 'PVP'} 오류: ${String(message || '').slice(0, 80)}`);
     });
   }
@@ -872,6 +897,106 @@ export default class GameScene extends Phaser.Scene {
     this.elapsedMs = 0;
     this.pvpEnemySpawnAcc = 0;
     this.pvpStatusText?.setText('');
+  }
+
+  makeDefaultCoopReviveState() {
+    return {
+      canHold: false,
+      holdActive: false,
+      holdTargetSid: '',
+      holdStartedAt: 0,
+      holdDurationMs: COOP_REVIVE_HOLD_MS,
+      beingRevived: false,
+      revivedBySid: '',
+      beingRevivedStartedAt: 0
+    };
+  }
+
+  resetCoopReviveState(sendCancel = false) {
+    this.coopReviveState = this.makeDefaultCoopReviveState();
+    if (!this.coopReviveHoldSources) {
+      this.coopReviveHoldSources = { pointer: false, key: false };
+    }
+    this.coopReviveHoldSources.pointer = false;
+    this.coopReviveHoldSources.key = false;
+    if (sendCancel) {
+      this.syncCoopReviveHoldIntent(true);
+    } else {
+      this.coopReviveHoldIntent = false;
+    }
+  }
+
+  setCoopReviveHoldSource(source, active) {
+    if (!this.isCoopMode) return;
+    if (!this.coopReviveHoldSources) this.coopReviveHoldSources = { pointer: false, key: false };
+    const key = source === 'pointer' ? 'pointer' : 'key';
+    const next = !!active;
+    if (this.coopReviveHoldSources[key] === next) return;
+    this.coopReviveHoldSources[key] = next;
+    this.syncCoopReviveHoldIntent();
+  }
+
+  syncCoopReviveHoldIntent(force = false) {
+    if (!this.isCoopMode) return;
+    const status = this.coopReviveState || this.makeDefaultCoopReviveState();
+    const wantsHold = !!this.coopReviveHoldSources?.pointer || !!this.coopReviveHoldSources?.key;
+    const canHold = !!(
+      this.isPvpMode
+      && this.pvpRoom
+      && this.pvpRoundStarted
+      && this.playerHp > 0
+      && (status.canHold || status.holdActive)
+    );
+    const next = wantsHold && canHold;
+    if (!force && this.coopReviveHoldIntent === next) return;
+    this.coopReviveHoldIntent = next;
+    if (this.pvpRoom) {
+      this.pvpRoom.send('coop.revive.hold', { active: next });
+    }
+  }
+
+  applyCoopReviveStatus(msg) {
+    if (!this.isCoopMode) return;
+    this.coopReviveState = {
+      canHold: !!msg?.canHold,
+      holdActive: !!msg?.holdActive,
+      holdTargetSid: String(msg?.holdTargetSid || ''),
+      holdStartedAt: Math.max(0, Math.floor(Number(msg?.holdStartedAt || 0))),
+      holdDurationMs: Math.max(500, Math.floor(Number(msg?.holdDurationMs || COOP_REVIVE_HOLD_MS))),
+      beingRevived: !!msg?.beingRevived,
+      revivedBySid: String(msg?.revivedBySid || ''),
+      beingRevivedStartedAt: Math.max(0, Math.floor(Number(msg?.beingRevivedStartedAt || 0)))
+    };
+    this.syncCoopReviveHoldIntent();
+  }
+
+  onCoopReviveDone(msg) {
+    if (!this.isCoopMode) return;
+    const bySid = String(msg?.bySid || '');
+    const targetSid = String(msg?.targetSid || '');
+    const hp = Number(msg?.hp);
+    if (targetSid === this.pvpSelfSid && Number.isFinite(hp)) {
+      this.playerHp = Math.max(0, hp);
+      new FloatingText(this, this.player.x, this.player.y - 72, '부활!', { fontSize: 20, color: '#8ef0a7' });
+    } else if (targetSid === this.pvpOpponentSid && this.pvpOpponent && Number.isFinite(hp)) {
+      this.pvpOpponent.hp = Math.max(0, hp);
+      new FloatingText(this, this.pvpOpponent.x, this.pvpOpponent.y - 72, '부활!', { fontSize: 20, color: '#8ef0a7' });
+    }
+    if (bySid === this.pvpSelfSid && targetSid && targetSid !== this.pvpSelfSid) {
+      this.pvpStatusText?.setText('팀원 부활 성공');
+      this.time.delayedCall(900, () => {
+        if (this.pvpStatusText?.text === '팀원 부활 성공') this.pvpStatusText.setText('');
+      });
+    }
+  }
+
+  updateCoopReviveInput() {
+    if (!this.isCoopMode) return;
+    const keyDown = !!this.reviveHoldKey?.isDown;
+    if (this.coopReviveHoldSources?.key !== keyDown) {
+      this.coopReviveHoldSources.key = keyDown;
+    }
+    this.syncCoopReviveHoldIntent();
   }
 
   updatePvpNet(_dtSec, dtMs) {
@@ -1685,6 +1810,39 @@ export default class GameScene extends Phaser.Scene {
       this.ui.traitSlots.push({ slotBg, icon, rank });
     }
 
+    this.ui.reviveBg = null;
+    this.ui.reviveFill = null;
+    this.ui.reviveLabel = null;
+    this.ui.reviveHint = null;
+    this.ui.reviveLayout = null;
+    if (this.isCoopMode) {
+      this.ui.reviveBg = this.add.rectangle(0, 0, 240, 42, 0x132540, 0.8)
+        .setOrigin(0.5)
+        .setScrollFactor(0)
+        .setInteractive({ useHandCursor: true });
+      this.ui.reviveBg.setStrokeStyle(2, 0x3b4d75, 0.95);
+      this.ui.reviveFill = this.add.rectangle(0, 0, 0, 38, 0x5dc28c, 0.74)
+        .setOrigin(0, 0.5)
+        .setScrollFactor(0)
+        .setVisible(false);
+      this.ui.reviveLabel = this.add.text(0, 0, '사망한 팀원 근처로 이동', {
+        fontFamily: font,
+        fontSize: '14px',
+        color: '#eaf0ff'
+      }).setOrigin(0.5).setScrollFactor(0);
+      this.ui.reviveHint = this.add.text(0, 0, '', {
+        fontFamily: font,
+        fontSize: '12px',
+        color: '#9fb3dc'
+      }).setOrigin(0.5).setScrollFactor(0);
+
+      this.ui.reviveBg.on('pointerdown', () => this.setCoopReviveHoldSource('pointer', true));
+      this.ui.reviveBg.on('pointerup', () => this.setCoopReviveHoldSource('pointer', false));
+      this.ui.reviveBg.on('pointerout', () => this.setCoopReviveHoldSource('pointer', false));
+      this.coopRevivePointerUpHandler = () => this.setCoopReviveHoldSource('pointer', false);
+      this.input.on('pointerup', this.coopRevivePointerUpHandler);
+    }
+
     const hudDepth = 1000;
     [
       this.ui.gold,
@@ -1707,6 +1865,12 @@ export default class GameScene extends Phaser.Scene {
       this.ui.synergy,
       this.ui.traitArea
     ].forEach((obj) => obj.setDepth(hudDepth));
+    if (this.ui.reviveBg) {
+      this.ui.reviveBg.setDepth(hudDepth + 5);
+      this.ui.reviveFill?.setDepth(hudDepth + 6);
+      this.ui.reviveLabel?.setDepth(hudDepth + 7);
+      this.ui.reviveHint?.setDepth(hudDepth + 7);
+    }
     this.ui.minimap.setDepth(hudDepth + 1);
     this.ui.skillSlots.forEach((slot) => {
       slot.bg.setDepth(hudDepth);
@@ -1799,6 +1963,18 @@ export default class GameScene extends Phaser.Scene {
         slot.iconSprite.setVisible(false);
       }
     });
+
+    if (this.ui.reviveBg && this.ui.reviveFill && this.ui.reviveLabel && this.ui.reviveHint) {
+      const reviveW = Math.min(320, Math.max(190, Math.floor(w * (this.isMobileTouch ? 0.52 : 0.28))));
+      const reviveH = this.isMobileTouch ? 46 : 42;
+      const reviveX = Math.floor(w * 0.5);
+      const reviveY = h - xpH - (this.isMobileTouch ? 134 : 34);
+      this.ui.reviveBg.setPosition(reviveX, reviveY).setSize(reviveW, reviveH);
+      this.ui.reviveFill.setPosition(reviveX - reviveW * 0.5 + 2, reviveY).setSize(0, reviveH - 4);
+      this.ui.reviveLabel.setPosition(reviveX, reviveY);
+      this.ui.reviveHint.setPosition(reviveX, reviveY - Math.floor(reviveH * 0.92));
+      this.ui.reviveLayout = { x: reviveX, y: reviveY, w: reviveW, h: reviveH };
+    }
 
     const traitX = statusX + statusW + 12;
     const traitY = statusY;
@@ -1922,6 +2098,7 @@ export default class GameScene extends Phaser.Scene {
 
     if (this.pauseActive) return;
     if (this.isPvpMode && !this.pvpCanControl) return;
+    if (this.isCoopMode && this.isPvpMode && this.playerHp <= 0) return;
 
     if (this.levelupActive) {
       if (key === Phaser.Input.Keyboard.KeyCodes.UP || key === Phaser.Input.Keyboard.KeyCodes.W) {
@@ -2077,6 +2254,7 @@ export default class GameScene extends Phaser.Scene {
   update(time, delta) {
     const dt = delta;
     const dtSec = dt / 1000;
+    this.updateCoopReviveInput();
 
     if (this.levelupActive && !this.isPvpMode) {
       this.updateHud();
@@ -2146,7 +2324,8 @@ export default class GameScene extends Phaser.Scene {
     }
 
     this.inputSystem.update();
-    const mv = this.inputSystem.getMoveVec();
+    const coopSelfDown = !!(this.isCoopMode && this.isPvpMode && this.playerHp <= 0);
+    const mv = coopSelfDown ? { x: 0, y: 0 } : this.inputSystem.getMoveVec();
     const moveSpeed = this.playerSpeed * this.relicMoveSpeedMul;
     this.player.body.setVelocity(mv.x * moveSpeed * this.combatPace, mv.y * moveSpeed * this.combatPace);
     if (this.playerShadow) this.playerShadow.setPosition(this.player.x, this.player.y + 20);
@@ -2160,7 +2339,7 @@ export default class GameScene extends Phaser.Scene {
 
     this.fireAcc += dt;
     const fireInterval = this.fireRateMs * this.relicFireIntervalMul;
-    if (this.inputSystem.isFiring() && this.fireAcc >= fireInterval) {
+    if (!coopSelfDown && this.inputSystem.isFiring() && this.fireAcc >= fireInterval) {
       this.fireAcc = 0;
       this.fireBullet();
       this.playActionSfx('fire');
@@ -2404,6 +2583,73 @@ export default class GameScene extends Phaser.Scene {
         slot.icon.setTexture(tex).setVisible(true);
         slot.rank.setText(`${this.abilitySystem.rank(key)}`).setVisible(true);
       });
+    }
+
+    this.updateCoopReviveHud();
+  }
+
+  updateCoopReviveHud() {
+    const bg = this.ui?.reviveBg;
+    const fill = this.ui?.reviveFill;
+    const label = this.ui?.reviveLabel;
+    const hint = this.ui?.reviveHint;
+    if (!bg || !fill || !label || !hint) return;
+
+    const status = this.coopReviveState || this.makeDefaultCoopReviveState();
+    const canUse = !!(
+      this.isCoopMode
+      && this.isPvpMode
+      && this.pvpRoundStarted
+      && this.playerHp > 0
+      && (status.canHold || status.holdActive)
+    );
+    bg.setVisible(canUse);
+    label.setVisible(canUse);
+    fill.setVisible(canUse);
+
+    if (!canUse) {
+      fill.setVisible(false);
+      if (this.isCoopMode && this.isPvpMode && this.playerHp <= 0 && status.beingRevived) {
+        const dur = Math.max(500, Math.floor(Number(status.holdDurationMs || COOP_REVIVE_HOLD_MS)));
+        const pct = Math.floor(
+          Phaser.Math.Clamp((Date.now() - Math.max(0, Number(status.beingRevivedStartedAt || 0))) / dur, 0, 1) * 100
+        );
+        hint.setVisible(true).setText(`팀원이 부활 중 ${pct}%`);
+      } else {
+        hint.setVisible(false).setText('');
+      }
+      return;
+    }
+
+    hint.setVisible(true);
+    const canHold = !!status.canHold;
+    const holdActive = !!status.holdActive;
+    const holdStartedAt = Math.max(0, Math.floor(Number(status.holdStartedAt || 0)));
+    const holdDurationMs = Math.max(500, Math.floor(Number(status.holdDurationMs || COOP_REVIVE_HOLD_MS)));
+    const progress = holdActive
+      ? Phaser.Math.Clamp((Date.now() - holdStartedAt) / holdDurationMs, 0, 1)
+      : 0;
+    const pct = Math.floor(progress * 100);
+    const lo = this.ui?.reviveLayout || { x: bg.x, y: bg.y, w: bg.width, h: bg.height };
+    const fillW = Math.max(0, Math.floor((lo.w - 4) * progress));
+    fill.setPosition(lo.x - lo.w * 0.5 + 2, lo.y).setSize(fillW, Math.max(2, lo.h - 4));
+    fill.setVisible(fillW > 0);
+
+    bg.setFillStyle(canHold || holdActive ? 0x1a3155 : 0x132540, canHold || holdActive ? 0.88 : 0.76);
+    bg.setStrokeStyle(2, holdActive ? 0x66d89a : (canHold ? 0x7ea0ff : 0x3b4d75), 0.95);
+
+    const targetName = status.holdTargetSid && status.holdTargetSid === this.pvpOpponentSid
+      ? (this.pvpOpponent?.name || '팀원')
+      : '팀원';
+    if (holdActive) {
+      label.setText(`부활 중 ${pct}%`);
+      hint.setText(`${targetName} 부활 진행`);
+    } else if (canHold) {
+      label.setText('부활 버튼 5초 꾹 누르기');
+      hint.setText(`${targetName} 부활`);
+    } else {
+      label.setText('사망한 팀원 근처로 이동');
+      hint.setText('');
     }
   }
 
@@ -2773,6 +3019,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   tryCastSkillSlot(slot, aimOverride = null) {
+    if (this.isCoopMode && this.isPvpMode && this.playerHp <= 0) return;
     const key = this.abilitySystem.activeSlots[slot];
     if (!key) return;
     if ((this.skillCooldowns[key] ?? 0) > 0) return;
@@ -3793,6 +4040,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   fireBullet() {
+    if (this.isCoopMode && this.isPvpMode && this.playerHp <= 0) return;
     const aim = this.getAimVector();
     if (aim.lengthSq() < 0.01) return;
 
