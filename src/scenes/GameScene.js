@@ -2626,6 +2626,9 @@ export default class GameScene extends Phaser.Scene {
     const holdActive = !!status.holdActive;
     const holdStartedAt = Math.max(0, Math.floor(Number(status.holdStartedAt || 0)));
     const holdDurationMs = Math.max(500, Math.floor(Number(status.holdDurationMs || COOP_REVIVE_HOLD_MS)));
+    const holdSecText = holdDurationMs % 1000 === 0
+      ? String(Math.floor(holdDurationMs / 1000))
+      : (holdDurationMs / 1000).toFixed(1);
     const progress = holdActive
       ? Phaser.Math.Clamp((Date.now() - holdStartedAt) / holdDurationMs, 0, 1)
       : 0;
@@ -2645,7 +2648,7 @@ export default class GameScene extends Phaser.Scene {
       label.setText(`부활 중 ${pct}%`);
       hint.setText(`${targetName} 부활 진행`);
     } else if (canHold) {
-      label.setText('부활 버튼 5초 꾹 누르기');
+      label.setText(`부활 버튼 ${holdSecText}초 꾹 누르기`);
       hint.setText(`${targetName} 부활`);
     } else {
       label.setText('사망한 팀원 근처로 이동');
