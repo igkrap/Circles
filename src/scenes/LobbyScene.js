@@ -239,6 +239,7 @@ export default class LobbyScene extends Phaser.Scene {
     let activeInputTarget = '';
     let selectedChatFriend = null;
     let chatRows = [];
+    let chatCacheRows = [];
     let friendScrollOffset = 0;
     let inviteScrollOffset = 0;
     let reqScrollOffset = 0;
@@ -286,66 +287,77 @@ export default class LobbyScene extends Phaser.Scene {
       friendPanel.chatHintText?.setVisible(visible);
       chatRows.forEach((obj) => obj?.setVisible?.(visible));
     };
+    const renderChatRowsFromCache = () => {
+      if (!friendPanel) return;
+      const rows = Array.isArray(chatCacheRows) ? chatCacheRows : [];
+      const scrollMax = Math.max(0, rows.length - 1);
+      chatScrollOffset = clampOffset(chatScrollOffset, scrollMax);
+      friendPanel.chatScrollMax = scrollMax;
+      const end = rows.length - chatScrollOffset;
+      const chatRowsSource = rows.slice(Math.max(0, end - 32), end);
+      clearChatRows();
+      if (!selectedChatFriend?.user_id) {
+        friendPanel.chatHintText?.setText('채팅할 친구를 선택하세요.');
+        setChatUiVisible(false);
+        return;
+      }
+      setChatUiVisible(true);
+      const sx = friendPanel.chatBox.x - friendPanel.chatBox.width * 0.5 + 10;
+      let sy = friendPanel.chatBox.y - friendPanel.chatBox.height * 0.5 + 8;
+      const maxBottom = friendPanel.chatBox.y + friendPanel.chatBox.height * 0.5 - 8;
+      let lastDateLabel = '';
+      for (const r of chatRowsSource) {
+        const rawTs = r?.created_at || r?.createdAt || r?.timestamp || r?.ts;
+        const dateLabel = formatChatDateLabel(rawTs);
+        if (dateLabel && dateLabel !== lastDateLabel) {
+          const divider = this.add.text(friendPanel.chatBox.x, sy, `──── ${dateLabel} ────`, {
+            fontFamily: FONT_KR,
+            fontSize: '11px',
+            color: '#8fa4cd'
+          }).setOrigin(0.5, 0);
+          if (sy + divider.height > maxBottom) {
+            divider.destroy();
+            break;
+          }
+          friendPanel.root.add(divider);
+          chatRows.push(divider);
+          sy += divider.height + 4;
+          lastDateLabel = dateLabel;
+        }
+        const mine = String(r?.from_user_id || '') === String(authSession?.user?.id || '');
+        const who = mine ? '나' : String(r?.from_name || '친구');
+        const ts = formatChatTimestamp(rawTs);
+        const prefix = ts ? `[${ts}] ` : '';
+        const line = this.add.text(sx, sy, `${prefix}${who}: ${String(r?.message || '').slice(0, 120)}`, {
+          fontFamily: FONT_KR,
+          fontSize: '12px',
+          color: mine ? '#d8e6ff' : '#9fc1ff',
+          wordWrap: { width: friendPanel.chatBox.width - 18 }
+        }).setOrigin(0, 0);
+        if (sy + line.height > maxBottom) {
+          line.destroy();
+          break;
+        }
+        friendPanel.root.add(line);
+        chatRows.push(line);
+        sy += Math.max(16, line.height + 2);
+      }
+      friendPanel.chatHintText?.setText(rows.length > 0 ? '' : '메시지가 없습니다.');
+    };
     const loadFriendChat = async () => {
       if (!authSession?.token || !selectedChatFriend?.user_id) {
         friendPanel.chatScrollMax = 0;
+        chatCacheRows = [];
         friendPanel.chatHintText?.setText('채팅할 친구를 선택하세요.');
         clearChatRows();
         setChatUiVisible(false);
         return;
       }
       try {
-        setChatUiVisible(true);
         await FriendSystem.markChatRead(authSession, selectedChatFriend.user_id);
-        const out = await FriendSystem.getChat(authSession, selectedChatFriend.user_id, 24);
-        const rows = Array.isArray(out?.rows) ? out.rows : [];
-        const scrollMax = Math.max(0, rows.length - 1);
-        chatScrollOffset = clampOffset(chatScrollOffset, scrollMax);
-        friendPanel.chatScrollMax = scrollMax;
-        const end = rows.length - chatScrollOffset;
-        const chatRowsSource = rows.slice(Math.max(0, end - 24), end);
-        clearChatRows();
-        const sx = friendPanel.chatBox.x - friendPanel.chatBox.width * 0.5 + 10;
-        let sy = friendPanel.chatBox.y - friendPanel.chatBox.height * 0.5 + 8;
-        const maxBottom = friendPanel.chatBox.y + friendPanel.chatBox.height * 0.5 - 8;
-        let lastDateLabel = '';
-        for (const r of chatRowsSource) {
-          const rawTs = r?.created_at || r?.createdAt || r?.timestamp || r?.ts;
-          const dateLabel = formatChatDateLabel(rawTs);
-          if (dateLabel && dateLabel !== lastDateLabel) {
-            const divider = this.add.text(friendPanel.chatBox.x, sy, `──── ${dateLabel} ────`, {
-              fontFamily: FONT_KR,
-              fontSize: '11px',
-              color: '#8fa4cd'
-            }).setOrigin(0.5, 0);
-            if (sy + divider.height > maxBottom) {
-              divider.destroy();
-              break;
-            }
-            friendPanel.root.add(divider);
-            chatRows.push(divider);
-            sy += divider.height + 4;
-            lastDateLabel = dateLabel;
-          }
-          const mine = String(r?.from_user_id || '') === String(authSession?.user?.id || '');
-          const who = mine ? '나' : String(r?.from_name || '친구');
-          const ts = formatChatTimestamp(rawTs);
-          const prefix = ts ? `[${ts}] ` : '';
-          const line = this.add.text(sx, sy, `${prefix}${who}: ${String(r?.message || '').slice(0, 120)}`, {
-            fontFamily: FONT_KR,
-            fontSize: '12px',
-            color: mine ? '#d8e6ff' : '#9fc1ff',
-            wordWrap: { width: friendPanel.chatBox.width - 18 }
-          }).setOrigin(0, 0);
-          if (sy + line.height > maxBottom) {
-            line.destroy();
-            break;
-          }
-          friendPanel.root.add(line);
-          chatRows.push(line);
-          sy += Math.max(16, line.height + 2);
-        }
-        friendPanel.chatHintText?.setText(rows.length > 0 ? '' : '메시지가 없습니다.');
+        const out = await FriendSystem.getChat(authSession, selectedChatFriend.user_id, 180);
+        chatCacheRows = Array.isArray(out?.rows) ? out.rows : [];
+        renderChatRowsFromCache();
         void refreshFriendBadge();
       } catch (err) {
         if (handleFriendAuthError(err)) return;
@@ -419,6 +431,7 @@ export default class LobbyScene extends Phaser.Scene {
         await FriendSystem.removeFriend(authSession, row.user_id);
         if (selectedChatFriend?.user_id && String(selectedChatFriend.user_id) === String(row.user_id)) {
           selectedChatFriend = null;
+          chatCacheRows = [];
           clearChatRows();
           setChatUiVisible(false);
         }
@@ -740,6 +753,7 @@ export default class LobbyScene extends Phaser.Scene {
           const stillExists = friendData.friends.find((f) => String(f?.user_id || '') === String(selectedChatFriend.user_id));
           if (!stillExists) {
             selectedChatFriend = null;
+            chatCacheRows = [];
             clearChatRows();
             friendPanel?.chatHintText?.setText('채팅할 친구를 선택하세요.');
             setChatUiVisible(false);
@@ -943,23 +957,32 @@ export default class LobbyScene extends Phaser.Scene {
         const step = dy > 0 ? 1 : -1;
         const areas = friendPanel.scrollAreas || {};
         if (inArea(px, py, areas.friends)) {
-          friendScrollOffset = clampOffset(friendScrollOffset + step, areas.friends.maxOffset);
+          const next = clampOffset(friendScrollOffset + step, areas.friends.maxOffset);
+          if (next === friendScrollOffset) return;
+          friendScrollOffset = next;
           renderFriendPanelRows();
           return;
         }
         if (inArea(px, py, areas.invites)) {
-          inviteScrollOffset = clampOffset(inviteScrollOffset + step, areas.invites.maxOffset);
+          const next = clampOffset(inviteScrollOffset + step, areas.invites.maxOffset);
+          if (next === inviteScrollOffset) return;
+          inviteScrollOffset = next;
           renderFriendPanelRows();
           return;
         }
         if (inArea(px, py, areas.requests)) {
-          reqScrollOffset = clampOffset(reqScrollOffset + step, areas.requests.maxOffset);
+          const next = clampOffset(reqScrollOffset + step, areas.requests.maxOffset);
+          if (next === reqScrollOffset) return;
+          reqScrollOffset = next;
           renderFriendPanelRows();
           return;
         }
         if (inArea(px, py, areas.chat) && selectedChatFriend?.user_id) {
-          chatScrollOffset = clampOffset(chatScrollOffset + step, areas.chat.maxOffset);
-          void loadFriendChat();
+          const next = clampOffset(chatScrollOffset + step, areas.chat.maxOffset);
+          if (next === chatScrollOffset) return;
+          chatScrollOffset = next;
+          renderFriendPanelRows();
+          renderChatRowsFromCache();
         }
       };
       this.input.keyboard.on('keydown', friendInputKeyHandler);
@@ -982,6 +1005,7 @@ export default class LobbyScene extends Phaser.Scene {
       inviteScrollOffset = 0;
       reqScrollOffset = 0;
       chatScrollOffset = 0;
+      chatCacheRows = [];
       selectedChatFriend = null;
       friendPanel.inputText.setText('태그 입력');
       friendPanel.chatInputText.setText('메시지 입력');
