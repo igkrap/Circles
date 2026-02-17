@@ -208,6 +208,18 @@ export default class LobbyScene extends Phaser.Scene {
       }
     };
     attachProgressSync(authSession);
+    void AuthSystem.loadGoogleSdk().catch(() => {});
+    void AuthSystem.resumeRedirectLogin().then(async (session) => {
+      if (!session) return;
+      authSession = session;
+      attachProgressSync(authSession);
+      await syncProgressFromServer();
+      goldText.setText(`${SaveSystem.getTotalGold()}`);
+      const stats = await loadPvpStats();
+      refreshAuthUi(stats);
+    }).catch((err) => {
+      authStatus.setText(`로그인 실패: ${String(err?.message || err).slice(0, 70)}`);
+    });
     void syncProgressFromServer().then(() => {
       goldText.setText(`${SaveSystem.getTotalGold()}`);
     });
@@ -232,7 +244,9 @@ export default class LobbyScene extends Phaser.Scene {
           refreshAuthUi(stats);
         }
       } catch (err) {
-        authStatus.setText(`로그인 실패: ${String(err?.message || err).slice(0, 70)}`);
+        const msg = String(err?.message || err);
+        if (msg === 'oauth_redirect_started') return;
+        authStatus.setText(`로그인 실패: ${msg.slice(0, 70)}`);
       } finally {
         authBtn.setInteractive({ useHandCursor: true });
       }
