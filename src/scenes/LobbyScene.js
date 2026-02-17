@@ -444,7 +444,7 @@ export default class LobbyScene extends Phaser.Scene {
         track.setStrokeStyle(1, 0x2e4a78, 0.8);
         const thumbH = Math.max(24, Math.floor(areaH * 0.28));
         const movable = areaH - thumbH;
-        const ratio = Phaser.Math.Clamp(Number(chatScrollOffset || 0) / safeMax, 0, 1);
+        const ratio = 1 - Phaser.Math.Clamp(Number(chatScrollOffset || 0) / safeMax, 0, 1);
         const thumbY = areaY + thumbH * 0.5 + movable * ratio;
         const thumb = this.add.rectangle(barX, thumbY, 4, thumbH, 0x7ea0ff, 0.95);
         friendPanel.root.add([track, thumb]);
