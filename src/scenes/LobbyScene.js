@@ -184,6 +184,7 @@ export default class LobbyScene extends Phaser.Scene {
       authSession = null;
       SaveSystem.setSyncHandler(null);
       stopInvitePolling();
+      stopFriendPanelPolling();
       friendBadge.setText('');
       if (friendPanel?.root) friendPanel.root.setVisible(false);
       refreshAuthUi();
@@ -198,9 +199,17 @@ export default class LobbyScene extends Phaser.Scene {
       try {
         const meOut = await FriendSystem.getMe(authSession);
         const myTag = String(meOut?.user?.tag || '');
-        const inv = await FriendSystem.getInvites(authSession);
+        const [inv, req, friendsOut] = await Promise.all([
+          FriendSystem.getInvites(authSession),
+          FriendSystem.getFriendRequests(authSession),
+          FriendSystem.getFriends(authSession)
+        ]);
         const incoming = Array.isArray(inv?.incoming) ? inv.incoming : [];
-        friendBadge.setText(incoming.length > 0 ? `+${incoming.length}` : '');
+        const incomingReq = Array.isArray(req?.incoming) ? req.incoming : [];
+        const friends = Array.isArray(friendsOut?.rows) ? friendsOut.rows : [];
+        const unreadChat = friends.reduce((acc, f) => acc + Math.max(0, Math.floor(Number(f?.unread_count || 0))), 0);
+        const badgeCount = incoming.length + incomingReq.length + unreadChat;
+        friendBadge.setText(badgeCount > 0 ? `+${badgeCount}` : '');
         if (authSession?.user) authSession.user.tag = myTag;
       } catch (err) {
         if (handleFriendAuthError(err)) return;
@@ -224,12 +233,71 @@ export default class LobbyScene extends Phaser.Scene {
     };
     let friendPanel = null;
     let friendPanelRows = [];
-    let friendData = { me: null, friends: [], incoming: [] };
+    let friendData = { me: null, friends: [], incoming: [], friendReqIncoming: [], friendReqOutgoing: [] };
     let tagInputValue = '';
-    let tagInputFocused = false;
+    let chatInputValue = '';
+    let activeInputTarget = '';
+    let selectedChatFriend = null;
+    let chatRows = [];
+    let friendPanelPollTimer = null;
+    const stopFriendPanelPolling = () => {
+      if (!friendPanelPollTimer) return;
+      friendPanelPollTimer.remove(false);
+      friendPanelPollTimer = null;
+    };
     const clearFriendPanelRows = () => {
       friendPanelRows.forEach((obj) => obj?.destroy?.());
       friendPanelRows = [];
+    };
+    const clearChatRows = () => {
+      chatRows.forEach((obj) => obj?.destroy?.());
+      chatRows = [];
+    };
+    const loadFriendChat = async () => {
+      if (!authSession?.token || !selectedChatFriend?.user_id) {
+        friendPanel.chatHintText?.setText('채팅할 친구를 선택하세요.');
+        clearChatRows();
+        return;
+      }
+      try {
+        await FriendSystem.markChatRead(authSession, selectedChatFriend.user_id);
+        const out = await FriendSystem.getChat(authSession, selectedChatFriend.user_id, 24);
+        const rows = Array.isArray(out?.rows) ? out.rows : [];
+        clearChatRows();
+        const sx = friendPanel.chatBox.x - friendPanel.chatBox.width * 0.5 + 10;
+        let sy = friendPanel.chatBox.y - friendPanel.chatBox.height * 0.5 + 12;
+        rows.slice(-8).forEach((r) => {
+          const mine = String(r?.from_user_id || '') === String(authSession?.user?.id || '');
+          const who = mine ? '나' : String(r?.from_name || '친구');
+          const line = this.add.text(sx, sy, `${who}: ${String(r?.message || '').slice(0, 120)}`, {
+            fontFamily: FONT_KR,
+            fontSize: '12px',
+            color: mine ? '#d8e6ff' : '#9fc1ff',
+            wordWrap: { width: friendPanel.chatBox.width - 18 }
+          }).setOrigin(0, 0);
+          friendPanel.root.add(line);
+          chatRows.push(line);
+          sy += Math.max(16, line.height + 2);
+        });
+        friendPanel.chatHintText?.setText(`${selectedChatFriend.name}#${selectedChatFriend.tag}`);
+        void loadFriendPanelData();
+      } catch (err) {
+        if (handleFriendAuthError(err)) return;
+        friendPanel?.statusText?.setText(`채팅 로드 실패: ${String(err?.message || err).slice(0, 60)}`);
+      }
+    };
+    const sendFriendChat = async () => {
+      const message = String(chatInputValue || '').trim();
+      if (!authSession?.token || !selectedChatFriend?.user_id || !message) return;
+      try {
+        await FriendSystem.sendChat(authSession, selectedChatFriend.user_id, message);
+        chatInputValue = '';
+        friendPanel.chatInputText?.setText('메시지 입력');
+        await loadFriendChat();
+      } catch (err) {
+        if (handleFriendAuthError(err)) return;
+        friendPanel?.statusText?.setText(`채팅 전송 실패: ${String(err?.message || err).slice(0, 60)}`);
+      }
     };
     const submitAddFriendByTag = async () => {
       if (!authSession?.token) return;
@@ -239,8 +307,12 @@ export default class LobbyScene extends Phaser.Scene {
         return;
       }
       try {
-        await FriendSystem.addByTag(authSession, tag);
-        friendPanel?.statusText?.setText(`친구 추가 완료: ${tag}`);
+        const out = await FriendSystem.requestByTag(authSession, tag);
+        if (out?.autoAccepted) {
+          friendPanel?.statusText?.setText(`요청 상호 승인: ${tag} 님과 친구가 되었습니다.`);
+        } else {
+          friendPanel?.statusText?.setText(`친구 요청 전송: ${tag}`);
+        }
         tagInputValue = '';
         if (friendPanel?.inputText) friendPanel.inputText.setText('태그 입력');
         await loadFriendPanelData();
@@ -307,6 +379,8 @@ export default class LobbyScene extends Phaser.Scene {
       const rightX = panelX + 20;
       const friends = Array.isArray(friendData.friends) ? friendData.friends : [];
       const incoming = Array.isArray(friendData.incoming) ? friendData.incoming : [];
+      const reqIncoming = Array.isArray(friendData.friendReqIncoming) ? friendData.friendReqIncoming : [];
+      const reqOutgoing = Array.isArray(friendData.friendReqOutgoing) ? friendData.friendReqOutgoing : [];
       const meTag = String(friendData?.me?.tag || '-');
       friendPanel.myTagText.setText(`내 태그: ${meTag}`);
       let y = panelY - 84;
@@ -335,6 +409,7 @@ export default class LobbyScene extends Phaser.Scene {
       friends.slice(0, 8).forEach((f) => {
         const rowBg = this.add.rectangle(leftX + 150, y + 12, 300, 24, 0x16253f, 0.82);
         rowBg.setStrokeStyle(1, 0x3f5d92, 0.45);
+        const unread = Math.max(0, Math.floor(Number(f?.unread_count || 0)));
         const tx = this.add.text(leftX + 10, y + 12, `${String(f?.name || 'Player')}#${String(f?.tag || '')}`, {
           fontFamily: FONT_KR,
           fontSize: '13px',
@@ -342,6 +417,23 @@ export default class LobbyScene extends Phaser.Scene {
         }).setOrigin(0, 0.5);
         root.add([rowBg, tx]);
         friendPanelRows.push(rowBg, tx);
+        if (unread > 0) {
+          const badgeX = leftX + 176;
+          const badgeY = y + 12;
+          const badge = this.add.circle(badgeX, badgeY, 9, 0xff6b6b, 0.98);
+          badge.setStrokeStyle(1, 0xffc6c6, 0.9);
+          const label = this.add.text(badgeX, badgeY, `${Math.min(99, unread)}`, {
+            fontFamily: FONT_KR,
+            fontSize: '10px',
+            color: '#ffffff'
+          }).setOrigin(0.5);
+          root.add([badge, label]);
+          friendPanelRows.push(badge, label);
+        }
+        mkBtn(leftX + 196, y + 12, 54, 20, '채팅', () => {
+          selectedChatFriend = f;
+          void loadFriendChat();
+        });
         mkBtn(leftX + 268, y + 12, 70, 20, '협동 초대', () => {
           void inviteFriendFromRow(f);
         });
@@ -393,20 +485,96 @@ export default class LobbyScene extends Phaser.Scene {
         root.add(empty);
         friendPanelRows.push(empty);
       }
+      const reqTitleY = panelY + 72;
+      const reqTitle = this.add.text(leftX, reqTitleY, `받은 친구 요청 (${reqIncoming.length})`, {
+        fontFamily: FONT_KR,
+        fontSize: '14px',
+        color: '#9fc1ff'
+      }).setOrigin(0, 0.5);
+      root.add(reqTitle);
+      friendPanelRows.push(reqTitle);
+      let ry = reqTitleY + 18;
+      reqIncoming.slice(0, 4).forEach((req) => {
+        const rowBg = this.add.rectangle(leftX + 150, ry + 12, 300, 24, 0x16253f, 0.82);
+        rowBg.setStrokeStyle(1, 0x3f5d92, 0.45);
+        const tx = this.add.text(leftX + 10, ry + 12, `${String(req?.from_name || 'Player')}#${String(req?.from_tag || '')}`, {
+          fontFamily: FONT_KR,
+          fontSize: '13px',
+          color: '#eaf0ff'
+        }).setOrigin(0, 0.5);
+        root.add([rowBg, tx]);
+        friendPanelRows.push(rowBg, tx);
+        mkBtn(leftX + 228, ry + 12, 46, 20, '수락', async () => {
+          try {
+            await FriendSystem.respondFriendRequest(authSession, req.id, true);
+            friendPanel?.statusText?.setText('친구 요청을 수락했습니다.');
+            await loadFriendPanelData();
+          } catch (err) {
+            if (handleFriendAuthError(err)) return;
+            friendPanel?.statusText?.setText(`요청 응답 실패: ${String(err?.message || err).slice(0, 60)}`);
+          }
+        });
+        mkBtn(leftX + 280, ry + 12, 46, 20, '거절', async () => {
+          try {
+            await FriendSystem.respondFriendRequest(authSession, req.id, false);
+            friendPanel?.statusText?.setText('친구 요청을 거절했습니다.');
+            await loadFriendPanelData();
+          } catch (err) {
+            if (handleFriendAuthError(err)) return;
+            friendPanel?.statusText?.setText(`요청 응답 실패: ${String(err?.message || err).slice(0, 60)}`);
+          }
+        });
+        ry += 28;
+      });
+      if (reqIncoming.length === 0) {
+        const empty = this.add.text(leftX, ry + 8, '받은 친구 요청이 없습니다.', {
+          fontFamily: FONT_KR,
+          fontSize: '13px',
+          color: '#8fa4cd'
+        }).setOrigin(0, 0.5);
+        root.add(empty);
+        friendPanelRows.push(empty);
+      }
+      const outReq = this.add.text(rightX, panelY + 154, `보낸 친구 요청 ${reqOutgoing.length}건`, {
+        fontFamily: FONT_KR,
+        fontSize: '13px',
+        color: '#8fa4cd'
+      }).setOrigin(0, 0.5);
+      root.add(outReq);
+      friendPanelRows.push(outReq);
+
+      const chatLabel = this.add.text(rightX, panelY + 176, '친구 채팅', {
+        fontFamily: FONT_KR,
+        fontSize: '14px',
+        color: '#9fc1ff'
+      }).setOrigin(0, 0.5);
+      root.add(chatLabel);
+      friendPanelRows.push(chatLabel);
     };
     const loadFriendPanelData = async () => {
       if (!authSession?.token) return;
       try {
-        const [meOut, friendsOut, invitesOut] = await Promise.all([
+        const [meOut, friendsOut, invitesOut, requestsOut] = await Promise.all([
           FriendSystem.getMe(authSession),
           FriendSystem.getFriends(authSession),
-          FriendSystem.getInvites(authSession)
+          FriendSystem.getInvites(authSession),
+          FriendSystem.getFriendRequests(authSession)
         ]);
         friendData = {
           me: meOut?.user || null,
           friends: Array.isArray(friendsOut?.rows) ? friendsOut.rows : [],
-          incoming: Array.isArray(invitesOut?.incoming) ? invitesOut.incoming : []
+          incoming: Array.isArray(invitesOut?.incoming) ? invitesOut.incoming : [],
+          friendReqIncoming: Array.isArray(requestsOut?.incoming) ? requestsOut.incoming : [],
+          friendReqOutgoing: Array.isArray(requestsOut?.outgoing) ? requestsOut.outgoing : []
         };
+        if (selectedChatFriend?.user_id) {
+          const stillExists = friendData.friends.find((f) => String(f?.user_id || '') === String(selectedChatFriend.user_id));
+          if (!stillExists) {
+            selectedChatFriend = null;
+            clearChatRows();
+            friendPanel?.chatHintText?.setText('채팅할 친구를 선택하세요.');
+          }
+        }
         if (authSession?.user && friendData?.me?.tag) authSession.user.tag = String(friendData.me.tag);
         renderFriendPanelRows();
         if (friendPanel?.statusText) friendPanel.statusText.setText('');
@@ -463,15 +631,34 @@ export default class LobbyScene extends Phaser.Scene {
         root.add([b, t]);
         return { b, t };
       };
-      const addBtn = mkPanelBtn(inputBox.x + 130, inputBox.y, 90, 28, '친구 추가', () => {
+      const addBtn = mkPanelBtn(inputBox.x + 130, inputBox.y, 90, 28, '요청 전송', () => {
         void submitAddFriendByTag();
       });
       const reloadBtn = mkPanelBtn(panelX + panelW * 0.5 - 158, panelY - panelH * 0.5 + 28, 70, 24, '새로고침', () => {
         void loadFriendPanelData();
       });
       const closeBtn = mkPanelBtn(panelX + panelW * 0.5 - 76, panelY - panelH * 0.5 + 28, 56, 24, '닫기', () => {
-        tagInputFocused = false;
+        activeInputTarget = '';
+        stopFriendPanelPolling();
         root.setVisible(false);
+      });
+      const chatBox = this.add.rectangle(panelX + panelW * 0.5 - 168, panelY + 252, 320, 130, 0x10213c, 0.92)
+        .setStrokeStyle(1, 0x3f5d92, 0.72);
+      const chatHintText = this.add.text(chatBox.x - chatBox.width * 0.5 + 10, chatBox.y - chatBox.height * 0.5 - 16, '채팅할 친구를 선택하세요.', {
+        fontFamily: FONT_KR,
+        fontSize: '12px',
+        color: '#8fa4cd'
+      }).setOrigin(0, 0.5);
+      const chatInputBox = this.add.rectangle(chatBox.x - 35, chatBox.y + chatBox.height * 0.5 + 24, 216, 28, 0x10213c, 0.98)
+        .setStrokeStyle(1, 0x7ea0ff, 0.8)
+        .setInteractive({ useHandCursor: true });
+      const chatInputText = this.add.text(chatInputBox.x - 98, chatInputBox.y, '메시지 입력', {
+        fontFamily: FONT_KR,
+        fontSize: '12px',
+        color: '#aab6d6'
+      }).setOrigin(0, 0.5);
+      const sendBtn = mkPanelBtn(chatInputBox.x + 130, chatInputBox.y, 74, 26, '전송', () => {
+        void sendFriendChat();
       });
       inputBox.on('pointerdown', () => {
         if (isMobileUi) {
@@ -479,47 +666,86 @@ export default class LobbyScene extends Phaser.Scene {
           if (raw == null) return;
           tagInputValue = String(raw).trim().toUpperCase().slice(0, 16);
           inputText.setText(tagInputValue || '태그 입력');
-          tagInputFocused = false;
+          activeInputTarget = '';
           inputBox.setStrokeStyle(1, 0x7ea0ff, 0.8);
           return;
         }
-        tagInputFocused = true;
+        activeInputTarget = 'tag';
         inputBox.setStrokeStyle(1, 0xffd77b, 0.95);
+        chatInputBox.setStrokeStyle(1, 0x7ea0ff, 0.8);
+      });
+      chatInputBox.on('pointerdown', () => {
+        if (isMobileUi) {
+          const raw = window.prompt('메시지 입력', chatInputValue || '');
+          if (raw == null) return;
+          chatInputValue = String(raw).slice(0, 240);
+          chatInputText.setText(chatInputValue || '메시지 입력');
+          activeInputTarget = '';
+          chatInputBox.setStrokeStyle(1, 0x7ea0ff, 0.8);
+          return;
+        }
+        activeInputTarget = 'chat';
+        chatInputBox.setStrokeStyle(1, 0xffd77b, 0.95);
+        inputBox.setStrokeStyle(1, 0x7ea0ff, 0.8);
       });
       dim.on('pointerdown', () => {
-        tagInputFocused = false;
+        activeInputTarget = '';
         inputBox.setStrokeStyle(1, 0x7ea0ff, 0.8);
+        chatInputBox.setStrokeStyle(1, 0x7ea0ff, 0.8);
+        stopFriendPanelPolling();
         root.setVisible(false);
       });
-      root.add([dim, panelBg, title, myTagText, inputBox, inputText, statusText, addBtn.b, addBtn.t, reloadBtn.b, reloadBtn.t, closeBtn.b, closeBtn.t]);
+      root.add([dim, panelBg, title, myTagText, inputBox, inputText, statusText, chatBox, chatHintText, chatInputBox, chatInputText, addBtn.b, addBtn.t, reloadBtn.b, reloadBtn.t, closeBtn.b, closeBtn.t, sendBtn.b, sendBtn.t]);
       friendPanel = {
         root,
         myTagText,
         inputBox,
         inputText,
-        statusText
+        statusText,
+        chatBox,
+        chatHintText,
+        chatInputBox,
+        chatInputText
       };
       const friendInputKeyHandler = (event) => {
         if (!friendPanel?.root?.visible) return;
-        if (!tagInputFocused) return;
+        if (!activeInputTarget) return;
         const key = String(event?.key || '');
         if (key === 'Escape') {
-          tagInputFocused = false;
+          activeInputTarget = '';
           friendPanel.inputBox.setStrokeStyle(1, 0x7ea0ff, 0.8);
+          friendPanel.chatInputBox.setStrokeStyle(1, 0x7ea0ff, 0.8);
           return;
         }
         if (key === 'Enter') {
-          void submitAddFriendByTag();
+          if (activeInputTarget === 'tag') {
+            void submitAddFriendByTag();
+          } else if (activeInputTarget === 'chat') {
+            void sendFriendChat();
+          }
           return;
         }
-        if (key === 'Backspace') {
-          tagInputValue = tagInputValue.slice(0, -1);
-        } else if (/^[a-zA-Z0-9]$/.test(key) && tagInputValue.length < 16) {
-          tagInputValue += key.toUpperCase();
-        } else {
+        if (activeInputTarget === 'tag') {
+          if (key === 'Backspace') {
+            tagInputValue = tagInputValue.slice(0, -1);
+          } else if (/^[a-zA-Z0-9]$/.test(key) && tagInputValue.length < 16) {
+            tagInputValue += key.toUpperCase();
+          } else {
+            return;
+          }
+          friendPanel.inputText.setText(tagInputValue || '태그 입력');
           return;
         }
-        friendPanel.inputText.setText(tagInputValue || '태그 입력');
+        if (activeInputTarget === 'chat') {
+          if (key === 'Backspace') {
+            chatInputValue = chatInputValue.slice(0, -1);
+          } else if (key.length === 1 && chatInputValue.length < 240) {
+            chatInputValue += key;
+          } else {
+            return;
+          }
+          friendPanel.chatInputText.setText(chatInputValue || '메시지 입력');
+        }
       };
       this.input.keyboard.on('keydown', friendInputKeyHandler);
       this.events.once('shutdown', () => {
@@ -532,12 +758,30 @@ export default class LobbyScene extends Phaser.Scene {
         return;
       }
       ensureFriendPanel();
-      tagInputFocused = false;
+      activeInputTarget = '';
       tagInputValue = '';
+      chatInputValue = '';
       friendPanel.inputText.setText('태그 입력');
+      friendPanel.chatInputText.setText('메시지 입력');
+      friendPanel.chatHintText.setText('채팅할 친구를 선택하세요.');
       friendPanel.statusText.setText('불러오는 중...');
       friendPanel.root.setVisible(true);
+      stopFriendPanelPolling();
+      friendPanelPollTimer = this.time.addEvent({
+        delay: 3000,
+        loop: true,
+        callback: () => {
+          if (!friendPanel?.root?.visible) return;
+          void loadFriendPanelData();
+          void loadFriendChat();
+        }
+      });
       await loadFriendPanelData();
+      const firstFriend = Array.isArray(friendData?.friends) ? friendData.friends[0] : null;
+      if (firstFriend?.user_id) {
+        selectedChatFriend = firstFriend;
+        await loadFriendChat();
+      }
     };
     const refreshAuthUi = (pvpStats = null) => {
       if (authSession?.user?.name) {
@@ -622,6 +866,7 @@ export default class LobbyScene extends Phaser.Scene {
           authSession = null;
           SaveSystem.setSyncHandler(null);
           stopInvitePolling();
+          stopFriendPanelPolling();
           friendBadge.setText('');
           if (friendPanel?.root) friendPanel.root.setVisible(false);
           refreshAuthUi();
@@ -892,6 +1137,7 @@ export default class LobbyScene extends Phaser.Scene {
     });
     this.events.once('shutdown', () => {
       stopInvitePolling();
+      stopFriendPanelPolling();
     });
 
     void title;

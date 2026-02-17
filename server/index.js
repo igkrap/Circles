@@ -210,6 +210,27 @@ CREATE TABLE IF NOT EXISTS friend_invites (
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS friend_requests (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  from_user_id TEXT NOT NULL,
+  to_user_id TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS friend_messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  from_user_id TEXT NOT NULL,
+  to_user_id TEXT NOT NULL,
+  message TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS friend_chat_reads (
+  user_id TEXT NOT NULL,
+  friend_user_id TEXT NOT NULL,
+  last_read_at INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (user_id, friend_user_id)
+);
 `);
 migrateLegacyProgressDbIfNeeded();
 
@@ -302,7 +323,17 @@ const stGetFriendLink = appDb.prepare(`
   WHERE user_id = ? AND friend_user_id = ?
 `);
 const stListFriends = appDb.prepare(`
-  SELECT f.friend_user_id AS user_id, p.name, p.tag, f.created_at
+  SELECT f.friend_user_id AS user_id, p.name, p.tag, f.created_at,
+         (
+           SELECT COUNT(1)
+           FROM friend_messages m
+           LEFT JOIN friend_chat_reads r
+             ON r.user_id = f.user_id
+            AND r.friend_user_id = f.friend_user_id
+           WHERE m.from_user_id = f.friend_user_id
+             AND m.to_user_id = f.user_id
+             AND m.created_at > COALESCE(r.last_read_at, 0)
+         ) AS unread_count
   FROM friend_links f
   JOIN user_profile p ON p.user_id = f.friend_user_id
   WHERE f.user_id = ?
@@ -344,6 +375,65 @@ const stUpdateInviteStatus = appDb.prepare(`
   UPDATE friend_invites
   SET status = ?, updated_at = ?
   WHERE id = ?
+`);
+const stInsertFriendRequest = appDb.prepare(`
+  INSERT INTO friend_requests (from_user_id, to_user_id, status, created_at, updated_at)
+  VALUES (?, ?, 'pending', ?, ?)
+`);
+const stFindPendingFriendRequestByPair = appDb.prepare(`
+  SELECT id, from_user_id, to_user_id, status, created_at, updated_at
+  FROM friend_requests
+  WHERE from_user_id = ? AND to_user_id = ? AND status = 'pending'
+  ORDER BY created_at DESC
+  LIMIT 1
+`);
+const stGetFriendRequestById = appDb.prepare(`
+  SELECT id, from_user_id, to_user_id, status, created_at, updated_at
+  FROM friend_requests
+  WHERE id = ?
+`);
+const stUpdateFriendRequestStatus = appDb.prepare(`
+  UPDATE friend_requests
+  SET status = ?, updated_at = ?
+  WHERE id = ?
+`);
+const stGetIncomingFriendRequests = appDb.prepare(`
+  SELECT r.id, r.from_user_id, r.to_user_id, r.status, r.created_at, r.updated_at,
+         p.name AS from_name, p.tag AS from_tag
+  FROM friend_requests r
+  JOIN user_profile p ON p.user_id = r.from_user_id
+  WHERE r.to_user_id = ? AND r.status = 'pending'
+  ORDER BY r.created_at DESC
+`);
+const stGetOutgoingFriendRequests = appDb.prepare(`
+  SELECT r.id, r.from_user_id, r.to_user_id, r.status, r.created_at, r.updated_at,
+         p.name AS to_name, p.tag AS to_tag
+  FROM friend_requests r
+  JOIN user_profile p ON p.user_id = r.to_user_id
+  WHERE r.from_user_id = ? AND r.status = 'pending'
+  ORDER BY r.created_at DESC
+`);
+const stInsertFriendMessage = appDb.prepare(`
+  INSERT INTO friend_messages (from_user_id, to_user_id, message, created_at)
+  VALUES (?, ?, ?, ?)
+`);
+const stGetFriendConversation = appDb.prepare(`
+  SELECT m.id, m.from_user_id, m.to_user_id, m.message, m.created_at,
+         fp.name AS from_name, fp.tag AS from_tag,
+         tp.name AS to_name, tp.tag AS to_tag
+  FROM friend_messages m
+  JOIN user_profile fp ON fp.user_id = m.from_user_id
+  JOIN user_profile tp ON tp.user_id = m.to_user_id
+  WHERE (m.from_user_id = ? AND m.to_user_id = ?)
+     OR (m.from_user_id = ? AND m.to_user_id = ?)
+  ORDER BY m.created_at DESC
+  LIMIT ?
+`);
+const stUpsertFriendChatRead = appDb.prepare(`
+  INSERT INTO friend_chat_reads (user_id, friend_user_id, last_read_at)
+  VALUES (?, ?, ?)
+  ON CONFLICT(user_id, friend_user_id) DO UPDATE SET
+    last_read_at=excluded.last_read_at
 `);
 
 function normalizeRunMode(mode) {
@@ -461,6 +551,24 @@ function createFriendInvite(fromUserId, toUserId) {
   const partyKey = randomToken(24);
   stInsertFriendInvite.run(fromUserId, toUserId, partyKey, now, now);
   return stFindPendingInviteByPair.get(fromUserId, toUserId);
+}
+
+function createFriendRequest(fromUserId, toUserId) {
+  if (!fromUserId || !toUserId || fromUserId === toUserId) return null;
+  if (areFriends(fromUserId, toUserId)) return { alreadyFriends: true };
+  const direct = stFindPendingFriendRequestByPair.get(fromUserId, toUserId);
+  if (direct) return direct;
+  const reverse = stFindPendingFriendRequestByPair.get(toUserId, fromUserId);
+  if (reverse) return { reversePending: true, request: reverse };
+  const now = Date.now();
+  stInsertFriendRequest.run(fromUserId, toUserId, now, now);
+  return stFindPendingFriendRequestByPair.get(fromUserId, toUserId);
+}
+
+function sanitizeChatMessage(raw) {
+  const text = String(raw ?? '').replace(/\s+/g, ' ').trim();
+  if (!text) return '';
+  return text.slice(0, 240);
 }
 
 function ensurePvpPlayer(userId, name) {
@@ -2294,6 +2402,103 @@ const gameServer = new Server({
         if (target.user_id === userId) return res.status(400).json({ error: 'cannot_add_self' });
         txCreateFriendPair(userId, target.user_id);
         return res.json({ ok: true, friend: target });
+      } catch (err) {
+        return res.status(401).json({ error: String(err?.message || err) });
+      }
+    });
+    expressApp.post('/friends/requests', (req, res) => {
+      try {
+        const { userId, name } = verifyAuthHeader(req);
+        ensureUserProfile(userId, name);
+        const tag = String(req.body?.tag || '').trim().toUpperCase();
+        if (!tag) return res.status(400).json({ error: 'tag_required' });
+        const target = stGetUserProfileByTag.get(tag);
+        if (!target) return res.status(404).json({ error: 'tag_not_found' });
+        if (target.user_id === userId) return res.status(400).json({ error: 'cannot_add_self' });
+        const out = createFriendRequest(userId, target.user_id);
+        if (out?.alreadyFriends) return res.status(400).json({ error: 'already_friends' });
+        if (out?.reversePending) {
+          txCreateFriendPair(userId, target.user_id);
+          stUpdateFriendRequestStatus.run('accepted', Date.now(), out.request.id);
+          return res.json({ ok: true, autoAccepted: true, friend: target });
+        }
+        if (!out?.id) return res.status(400).json({ error: 'request_create_failed' });
+        return res.json({ ok: true, request: out, target: { user_id: target.user_id, name: target.name, tag: target.tag } });
+      } catch (err) {
+        return res.status(401).json({ error: String(err?.message || err) });
+      }
+    });
+    expressApp.get('/friends/requests', (req, res) => {
+      try {
+        const { userId, name } = verifyAuthHeader(req);
+        ensureUserProfile(userId, name);
+        const incoming = stGetIncomingFriendRequests.all(userId);
+        const outgoing = stGetOutgoingFriendRequests.all(userId);
+        return res.json({ incoming, outgoing });
+      } catch (err) {
+        return res.status(401).json({ error: String(err?.message || err) });
+      }
+    });
+    expressApp.post('/friends/requests/:id/respond', (req, res) => {
+      try {
+        const { userId, name } = verifyAuthHeader(req);
+        ensureUserProfile(userId, name);
+        const requestId = Math.max(0, Math.floor(Number(req.params?.id || 0)));
+        const accept = !!req.body?.accept;
+        if (!requestId) return res.status(400).json({ error: 'request_id_required' });
+        const row = stGetFriendRequestById.get(requestId);
+        if (!row) return res.status(404).json({ error: 'request_not_found' });
+        if (String(row.to_user_id) !== userId) return res.status(403).json({ error: 'request_forbidden' });
+        if (String(row.status) !== 'pending') return res.status(400).json({ error: 'request_not_pending' });
+        stUpdateFriendRequestStatus.run(accept ? 'accepted' : 'rejected', Date.now(), requestId);
+        if (accept) txCreateFriendPair(userId, String(row.from_user_id));
+        return res.json({ ok: true, requestId, status: accept ? 'accepted' : 'rejected' });
+      } catch (err) {
+        return res.status(401).json({ error: String(err?.message || err) });
+      }
+    });
+    expressApp.get('/friends/chat/:friendUserId', (req, res) => {
+      try {
+        const { userId, name } = verifyAuthHeader(req);
+        ensureUserProfile(userId, name);
+        const friendUserId = String(req.params?.friendUserId || '').trim();
+        const limitRaw = Number(req.query?.limit || 60);
+        const limit = Math.max(1, Math.min(200, Math.floor(limitRaw)));
+        if (!friendUserId) return res.status(400).json({ error: 'friend_user_id_required' });
+        if (!areFriends(userId, friendUserId)) return res.status(403).json({ error: 'not_friends' });
+        stUpsertFriendChatRead.run(userId, friendUserId, Date.now());
+        const rows = stGetFriendConversation.all(userId, friendUserId, friendUserId, userId, limit).reverse();
+        return res.json({ rows });
+      } catch (err) {
+        return res.status(401).json({ error: String(err?.message || err) });
+      }
+    });
+    expressApp.post('/friends/chat/:friendUserId/read', (req, res) => {
+      try {
+        const { userId, name } = verifyAuthHeader(req);
+        ensureUserProfile(userId, name);
+        const friendUserId = String(req.params?.friendUserId || '').trim();
+        if (!friendUserId) return res.status(400).json({ error: 'friend_user_id_required' });
+        if (!areFriends(userId, friendUserId)) return res.status(403).json({ error: 'not_friends' });
+        stUpsertFriendChatRead.run(userId, friendUserId, Date.now());
+        return res.json({ ok: true });
+      } catch (err) {
+        return res.status(401).json({ error: String(err?.message || err) });
+      }
+    });
+    expressApp.post('/friends/chat/:friendUserId', (req, res) => {
+      try {
+        const { userId, name } = verifyAuthHeader(req);
+        ensureUserProfile(userId, name);
+        const friendUserId = String(req.params?.friendUserId || '').trim();
+        if (!friendUserId) return res.status(400).json({ error: 'friend_user_id_required' });
+        if (!areFriends(userId, friendUserId)) return res.status(403).json({ error: 'not_friends' });
+        const message = sanitizeChatMessage(req.body?.message);
+        if (!message) return res.status(400).json({ error: 'message_required' });
+        const now = Date.now();
+        stInsertFriendMessage.run(userId, friendUserId, message, now);
+        const rows = stGetFriendConversation.all(userId, friendUserId, friendUserId, userId, 1).reverse();
+        return res.json({ ok: true, row: rows[0] || null });
       } catch (err) {
         return res.status(401).json({ error: String(err?.message || err) });
       }
