@@ -256,6 +256,7 @@ export default class GameScene extends Phaser.Scene {
     this.relicHpRegenFlat = 0.0;
     this.hpRegenPerSec = 0.0;
     this.hpRegenAcc = 0.0;
+    this.lifestealAcc = 0.0;
     this.shieldRegenDelaySec = 0.0;
     this.shieldRegenAcc = 0.0;
 
@@ -639,15 +640,16 @@ export default class GameScene extends Phaser.Scene {
       const hp = Number(msg?.hp);
       const damage = Math.max(0, Number(msg?.damage || 0));
       const fromSid = String(msg?.fromSid || '');
+      const attackerHp = Number(msg?.attackerHp);
       const enemy = this.pvpEnemyIndex.get(id);
       if (!enemy || !enemy.active) return;
       if (Number.isFinite(hp)) enemy.hp = Math.max(0, hp);
       if (damage > 0) {
         this.emitBurst(enemy.x, enemy.y, { count: 6, tint: 0xffffff, speedMin: 40, speedMax: 130, scaleStart: 0.65, lifespan: 120 });
         new FloatingText(this, enemy.x, enemy.y - 10, String(Math.floor(damage)), { fontSize: 16, color: '#ffffff' });
-        if (fromSid && fromSid === this.pvpSelfSid) {
-          this.applyLifesteal(damage);
-        }
+      }
+      if (fromSid && fromSid === this.pvpSelfSid && Number.isFinite(attackerHp)) {
+        this.playerHp = Math.min(this.playerMaxHp, Math.max(0, attackerHp));
       }
       if (enemy.hp <= 0) {
         this.killEnemy(enemy, false);
@@ -2051,77 +2053,94 @@ export default class GameScene extends Phaser.Scene {
   }
 
   layoutHud(w, h) {
-    const xpH = 8;
-    const pad = w < 720 ? 8 : 12;
+    const hudScaleBase = Phaser.Math.Clamp(w / 960, 0.75, 1.35);
+    const hudScale = w < 720 ? Math.min(1, hudScaleBase) : hudScaleBase;
+    const xpH = Math.max(6, Math.round(8 * hudScale));
+    const pad = Math.round((w < 720 ? 8 : 12) * hudScale);
 
-    const goldW = w < 720 ? 132 : 144;
-    this.ui.goldPanel.setPosition(pad, 8).setSize(goldW, 30);
-    this.ui.coin.setPosition(pad + 12, 22);
-    this.ui.gold.setPosition(pad + 26, 11);
+    this.ui.gold.setFontSize(Math.max(12, Math.round(16 * hudScale)));
+    this.ui.stage.setFontSize(Math.max(14, Math.round(18 * hudScale)));
+    this.ui.stageSub.setFontSize(Math.max(10, Math.round(10 * hudScale)));
+    this.ui.modeObjective.setFontSize(Math.max(10, Math.round(10 * hudScale)));
+    this.ui.time.setFontSize(Math.max(13, Math.round(17 * hudScale)));
+    this.ui.ping.setFontSize(Math.max(9, Math.round(10 * hudScale)));
+    this.ui.bossHpLabel.setFontSize(Math.max(10, Math.round(13 * hudScale)));
+    this.ui.hp.setFontSize(Math.max(11, Math.round(15 * hudScale)));
+    this.ui.shield.setFontSize(Math.max(10, Math.round(13 * hudScale)));
+    this.ui.synergy.setFontSize(Math.max(9, Math.round(11 * hudScale)));
+    if (this.ui.reviveLabel && this.ui.reviveHint) {
+      this.ui.reviveLabel.setFontSize(Math.max(11, Math.round(14 * hudScale)));
+      this.ui.reviveHint.setFontSize(Math.max(10, Math.round(12 * hudScale)));
+    }
 
-    const pauseW = 30;
-    const timeW = w < 720 ? 78 : 86;
-    const topRowY = 8;
-    const topRowH = 30;
+    const goldW = Math.round((w < 720 ? 132 : 144) * hudScale);
+    this.ui.goldPanel.setPosition(pad, Math.round(8 * hudScale)).setSize(goldW, Math.round(30 * hudScale));
+    this.ui.coin.setPosition(pad + Math.round(12 * hudScale), Math.round(22 * hudScale)).setScale(0.78 * hudScale);
+    this.ui.gold.setPosition(pad + Math.round(26 * hudScale), Math.round(11 * hudScale));
+
+    const pauseW = Math.round(30 * hudScale);
+    const timeW = Math.round((w < 720 ? 78 : 86) * hudScale);
+    const topRowY = Math.round(8 * hudScale);
+    const topRowH = Math.round(30 * hudScale);
     const rightX = w - pad;
-    const pauseGap = 6;
+    const pauseGap = Math.round(6 * hudScale);
     const timeX = rightX - pauseW - pauseGap - timeW;
     this.ui.timePanel.setPosition(timeX, topRowY).setSize(timeW, topRowH);
-    this.ui.time.setPosition(timeX + timeW - 8, topRowY + topRowH * 0.5);
+    this.ui.time.setPosition(timeX + timeW - Math.round(8 * hudScale), topRowY + topRowH * 0.5);
     if (this.pauseUi?.pauseBtn?.active && this.pauseUi?.pauseTxt?.active) {
       const px = rightX - pauseW * 0.5;
       const py = topRowY + topRowH * 0.5;
       this.pauseUi.pauseBtn.setPosition(px, py);
-      this.pauseUi.pauseBtn.setSize(30, 30);
+      this.pauseUi.pauseBtn.setSize(pauseW, pauseW);
       this.pauseUi.pauseTxt.setPosition(px, py);
     }
 
-    const mmW = w < 720 ? 104 : 122;
-    const mmH = w < 720 ? 72 : 84;
+    const mmW = Math.round((w < 720 ? 104 : 122) * hudScale);
+    const mmH = Math.round((w < 720 ? 72 : 84) * hudScale);
     const mmX = w - pad - mmW;
-    const mmY = topRowY + topRowH + 6;
+    const mmY = topRowY + topRowH + Math.round(6 * hudScale);
     this.ui.minimapBg.setPosition(mmX, mmY).setSize(mmW, mmH);
-    this.ui.minimapLayout = { x: mmX, y: mmY, w: mmW, h: mmH, pad: 4 };
-    this.ui.ping.setPosition(mmX + mmW, mmY + mmH + 4);
+    this.ui.minimapLayout = { x: mmX, y: mmY, w: mmW, h: mmH, pad: Math.max(3, Math.round(4 * hudScale)) };
+    this.ui.ping.setPosition(mmX + mmW, mmY + mmH + Math.round(4 * hudScale));
 
-    this.ui.stage.setPosition(w * 0.5, 10);
-    this.ui.stageSub.setPosition(w * 0.5, 27);
-    this.ui.modeObjective.setPosition(w * 0.5, 41);
-    const stageWrap = Math.max(180, Math.min(340, Math.floor(w * 0.32)));
+    this.ui.stage.setPosition(w * 0.5, Math.round(10 * hudScale));
+    this.ui.stageSub.setPosition(w * 0.5, Math.round(27 * hudScale));
+    this.ui.modeObjective.setPosition(w * 0.5, Math.round(41 * hudScale));
+    const stageWrap = Math.max(Math.floor(180 * hudScale), Math.min(Math.floor(340 * hudScale), Math.floor(w * 0.32)));
     this.ui.stage.setWordWrapWidth(stageWrap, true);
     this.ui.stageSub.setWordWrapWidth(stageWrap, true);
     this.ui.modeObjective.setWordWrapWidth(stageWrap, true);
 
-    const bossW = Math.min(500, Math.max(260, w - 180));
-    this.ui.bossHpFrame.setPosition(w * 0.5, 84).setSize(bossW + 16, 22);
-    this.ui.bossHpBg.setPosition(w * 0.5, 84).setSize(bossW, 10);
-    this.ui.bossHpFill.setPosition((w * 0.5) - (bossW * 0.5), 84).setSize(bossW, 10);
-    this.ui.bossHpLabel.setPosition(w * 0.5, 69);
+    const bossW = Math.min(Math.floor(500 * hudScale), Math.max(Math.floor(260 * hudScale), w - Math.floor(180 * hudScale)));
+    this.ui.bossHpFrame.setPosition(w * 0.5, Math.round(84 * hudScale)).setSize(bossW + Math.round(16 * hudScale), Math.round(22 * hudScale));
+    this.ui.bossHpBg.setPosition(w * 0.5, Math.round(84 * hudScale)).setSize(bossW, Math.round(10 * hudScale));
+    this.ui.bossHpFill.setPosition((w * 0.5) - (bossW * 0.5), Math.round(84 * hudScale)).setSize(bossW, Math.round(10 * hudScale));
+    this.ui.bossHpLabel.setPosition(w * 0.5, Math.round(69 * hudScale));
 
     this.ui.xpBarBg.setPosition(0, h);
     this.ui.xpBarBg.setSize(w, xpH);
     this.ui.xpBarFill.setPosition(0, h);
     this.ui.xpBarFill.setSize(w, xpH);
-    this.ui.xpBarEdge.setPosition(0, h - xpH + 1).setSize(w, 1);
+    this.ui.xpBarEdge.setPosition(0, h - xpH + 1).setSize(w, Math.max(1, Math.round(hudScale)));
 
-    const statusW = Math.min(300, Math.max(220, Math.floor(w * 0.36)));
-    const statusH = 72;
+    const statusW = Math.min(Math.floor(300 * hudScale), Math.max(Math.floor(220 * hudScale), Math.floor(w * 0.33)));
+    const statusH = Math.round(72 * hudScale);
     const statusX = pad;
-    const statusY = h - xpH - 8 - statusH;
+    const statusY = h - xpH - Math.round(8 * hudScale) - statusH;
     this.ui.statusBg.setPosition(statusX, statusY).setSize(statusW, statusH);
-    this.ui.statusAccent.setPosition(statusX + 1, statusY + 1).setSize(4, statusH - 2);
-    this.ui.statusLine.setPosition(statusX + 14, statusY + 36).setSize(statusW - 28, 10);
-    this.ui.statusLineFill.setPosition(statusX + 15, statusY + 37).setSize(Math.max(0, statusW - 30), 8);
-    this.ui.hp.setPosition(statusX + 14, statusY + 8);
-    this.ui.shield.setPosition(statusX + 14, statusY + 23);
-    this.ui.synergy.setPosition(statusX + 14, statusY + 54);
-    this.ui.synergy.setWordWrapWidth(Math.max(60, statusW - 116), true);
-    const shieldCellSize = 8;
-    const shieldGap = 4;
+    this.ui.statusAccent.setPosition(statusX + 1, statusY + 1).setSize(Math.max(3, Math.round(4 * hudScale)), statusH - 2);
+    this.ui.statusLine.setPosition(statusX + Math.round(14 * hudScale), statusY + Math.round(36 * hudScale)).setSize(statusW - Math.round(28 * hudScale), Math.round(10 * hudScale));
+    this.ui.statusLineFill.setPosition(statusX + Math.round(15 * hudScale), statusY + Math.round(37 * hudScale)).setSize(Math.max(0, statusW - Math.round(30 * hudScale)), Math.round(8 * hudScale));
+    this.ui.hp.setPosition(statusX + Math.round(14 * hudScale), statusY + Math.round(8 * hudScale));
+    this.ui.shield.setPosition(statusX + Math.round(14 * hudScale), statusY + Math.round(23 * hudScale));
+    this.ui.synergy.setPosition(statusX + Math.round(14 * hudScale), statusY + Math.round(54 * hudScale));
+    this.ui.synergy.setWordWrapWidth(Math.max(Math.round(60 * hudScale), statusW - Math.round(116 * hudScale)), true);
+    const shieldCellSize = Math.max(6, Math.round(8 * hudScale));
+    const shieldGap = Math.max(2, Math.round(4 * hudScale));
     const shieldCount = this.ui.shieldCells?.length || 0;
     const shieldW = shieldCount > 0 ? (shieldCount * shieldCellSize) + ((shieldCount - 1) * shieldGap) : 0;
-    const shieldX = statusX + statusW - 12 - shieldW;
-    const shieldY = statusY + statusH - 16;
+    const shieldX = statusX + statusW - Math.round(12 * hudScale) - shieldW;
+    const shieldY = statusY + statusH - Math.round(16 * hudScale);
     this.ui.shieldCells?.forEach((cell, i) => {
       const cx = shieldX + i * (shieldCellSize + shieldGap) + shieldCellSize * 0.5;
       const cy = shieldY + shieldCellSize * 0.5;
@@ -2129,12 +2148,12 @@ export default class GameScene extends Phaser.Scene {
     });
     this.ui.statusLayout = { x: statusX, y: statusY, w: statusW, h: statusH };
 
-    const box = w < 720 ? 46 : 52;
-    const gap = w < 720 ? 6 : 8;
+    const box = Math.round((w < 720 ? 46 : 52) * hudScale);
+    const gap = Math.max(4, Math.round((w < 720 ? 6 : 8) * hudScale));
     const gridW = box * 2 + gap;
     const gridH = box * 2 + gap;
     const gridX = w - pad - gridW;
-    const gridY = h - xpH - 8 - gridH;
+    const gridY = h - xpH - Math.round(8 * hudScale) - gridH;
     this.ui.skillSlots.forEach((slot, idx) => {
       const r = Math.floor(idx / 2);
       const c = idx % 2;
@@ -2143,10 +2162,10 @@ export default class GameScene extends Phaser.Scene {
       slot.rect = { x, y, w: box, h: box };
       slot.bg.setPosition(x + box * 0.5, y + box * 0.5).setSize(box, box);
       slot.border.setPosition(x + box * 0.5, y + box * 0.5).setSize(box, box);
-      slot.num.setPosition(x + 4, y + 2).setFontSize(Math.max(10, Math.floor(box * 0.18)));
+      slot.num.setPosition(x + Math.round(4 * hudScale), y + Math.round(2 * hudScale)).setFontSize(Math.max(10, Math.floor(box * 0.18)));
       slot.iconSprite.setPosition(x + box * 0.5, y + box * 0.5 + 1).setDisplaySize(box * 0.4, box * 0.4).setAlpha(0.98);
       slot.icon.setPosition(x + box * 0.5, y + box * 0.5 + 2).setFontSize(Math.max(10, Math.floor(box * 0.21)));
-      slot.rank.setPosition(x + box - 5, y + box - 5).setFontSize(Math.max(10, Math.floor(box * 0.18)));
+      slot.rank.setPosition(x + box - Math.round(5 * hudScale), y + box - Math.round(5 * hudScale)).setFontSize(Math.max(10, Math.floor(box * 0.18)));
       slot.cdText.setPosition(x + box * 0.5, y + box * 0.5).setFontSize(Math.max(10, Math.floor(box * 0.19)));
 
       const showDesktopSkillHud = !this.isMobileTouch;
@@ -2163,23 +2182,23 @@ export default class GameScene extends Phaser.Scene {
     });
 
     if (this.ui.reviveBg && this.ui.reviveFill && this.ui.reviveLabel && this.ui.reviveHint) {
-      const reviveW = Math.min(320, Math.max(190, Math.floor(w * (this.isMobileTouch ? 0.52 : 0.28))));
-      const reviveH = this.isMobileTouch ? 46 : 42;
+      const reviveW = Math.min(Math.floor(320 * hudScale), Math.max(Math.floor(190 * hudScale), Math.floor(w * (this.isMobileTouch ? 0.52 : 0.28))));
+      const reviveH = Math.round((this.isMobileTouch ? 46 : 42) * hudScale);
       const reviveX = Math.floor(w * 0.5);
-      const reviveY = h - xpH - (this.isMobileTouch ? 124 : 34);
+      const reviveY = h - xpH - Math.round((this.isMobileTouch ? 124 : 34) * hudScale);
       this.ui.reviveBg.setPosition(reviveX, reviveY).setSize(reviveW, reviveH);
       this.ui.reviveFill.setPosition(reviveX - reviveW * 0.5 + 2, reviveY).setSize(0, reviveH - 4);
       this.ui.reviveLabel.setPosition(reviveX, reviveY);
-      this.ui.reviveHint.setPosition(reviveX, reviveY - Math.floor(reviveH * 0.92));
+      this.ui.reviveHint.setPosition(reviveX, reviveY - Math.floor(reviveH * 0.9));
       this.ui.reviveLayout = { x: reviveX, y: reviveY, w: reviveW, h: reviveH };
     }
 
     const traitCols = Math.min(8, Math.max(1, this.ui.traitSlots.length));
-    const traitIconSize = w < 720 ? 12 : 13;
-    const traitGap = w < 720 ? 8 : 9;
+    const traitIconSize = Math.round((w < 720 ? 12 : 13) * hudScale);
+    const traitGap = Math.max(5, Math.round((w < 720 ? 8 : 9) * hudScale));
     const traitRowW = (traitCols * traitIconSize) + ((traitCols - 1) * traitGap);
     const traitStartX = statusX + statusW - 12 - traitRowW;
-    const traitY = statusY + 8;
+    const traitY = statusY + Math.round(8 * hudScale);
     this.ui.traitArea.setVisible(false).setPosition(0, 0).setSize(0, 0);
     this.ui.traitLayout = {
       x: traitStartX,
@@ -2194,7 +2213,7 @@ export default class GameScene extends Phaser.Scene {
       const sy = traitY;
       slot.slotBg.setVisible(false).setPosition(sx, sy).setSize(traitIconSize, traitIconSize);
       slot.icon.setVisible(false).setPosition(sx + traitIconSize * 0.5, sy + traitIconSize * 0.5).setDisplaySize(traitIconSize - 2, traitIconSize - 2);
-      slot.rank.setVisible(false).setPosition(sx + traitIconSize - 1, sy + traitIconSize - 1).setFontSize(9);
+      slot.rank.setVisible(false).setPosition(sx + traitIconSize - 1, sy + traitIconSize - 1).setFontSize(Math.max(8, Math.round(9 * hudScale)));
     });
   }
 
@@ -3720,12 +3739,19 @@ export default class GameScene extends Phaser.Scene {
   }
 
   applyLifesteal(dmg) {
-    if (this.isPvpMode) return;
+    if (this.isPvpMode) {
+      this.lifestealAcc = 0;
+      return;
+    }
     const ratio = this.abilitySystem.lifeStealRatio() + this.relicLifestealFlat;
     if (ratio <= 0) return;
-    const heal = Math.max(0, Math.floor(dmg * ratio));
+    this.lifestealAcc += Math.max(0, Number(dmg || 0) * ratio);
+    const heal = Math.max(0, Math.floor(this.lifestealAcc * 10) / 10);
     if (heal <= 0) return;
-    this.playerHp = Math.min(this.playerMaxHp, this.playerHp + heal);
+    this.lifestealAcc = Math.max(0, this.lifestealAcc - heal);
+    const nextHp = Math.min(this.playerMaxHp, this.playerHp + heal);
+    this.playerHp = Math.round(nextHp * 10) / 10;
+    if (this.playerHp >= this.playerMaxHp) this.lifestealAcc = 0;
   }
 
   castShockwave() {

@@ -40,6 +40,7 @@ export default class RankingScene extends Phaser.Scene {
   create() {
     const w = this.scale.width;
     const h = this.scale.height;
+    const uiScale = Phaser.Math.Clamp(w / 960, 0.85, 1.25);
     this.activeMode = 'survival';
     this.rankRows = [];
 
@@ -50,21 +51,23 @@ export default class RankingScene extends Phaser.Scene {
 
     this.createBackdrop(w, h);
 
-    const panelW = Math.min(980, w - 36);
-    const panelH = Math.min(660, h - 36);
+    const panelW = Math.min(Math.floor(1160 * uiScale), w - Math.round(36 * uiScale));
+    const panelH = Math.min(Math.floor(700 * uiScale), h - Math.round(36 * uiScale));
     const panelX = w * 0.5;
     const panelY = h * 0.5;
     const panelTop = panelY - panelH * 0.5;
+    const panelLeft = panelX - panelW * 0.5;
+    const panelRight = panelX + panelW * 0.5;
 
-    const panelShadow = this.add.rectangle(panelX, panelY + 8, panelW + 16, panelH + 18, 0x040b16, 0.66);
+    const panelShadow = this.add.rectangle(panelX, panelY + Math.round(8 * uiScale), panelW + Math.round(16 * uiScale), panelH + Math.round(18 * uiScale), 0x040b16, 0.66);
     const panel = this.add.rectangle(panelX, panelY, panelW, panelH, 0x0f1e35, 0.96);
     panel.setStrokeStyle(1.8, 0x6fc8ff, 0.84);
-    const headerY = panelTop + 34;
-    const header = this.add.rectangle(panelX, headerY, panelW - 30, 44, 0x163153, 0.38);
+    const headerY = panelTop + Math.round(34 * uiScale);
+    const header = this.add.rectangle(panelX, headerY, panelW - Math.round(30 * uiScale), Math.round(44 * uiScale), 0x163153, 0.38);
     header.setStrokeStyle(1, 0x6eaedb, 0.34);
     const title = this.add.text(panelX, headerY, '랭킹', {
       fontFamily: FONT_KR,
-      fontSize: '24px',
+      fontSize: `${Math.max(20, Math.round(24 * uiScale))}px`,
       color: '#eaf0ff'
     }).setOrigin(0.5);
 
@@ -73,18 +76,18 @@ export default class RankingScene extends Phaser.Scene {
       { id: 'coop', label: '협동' },
       { id: 'pvp', label: 'PVP' }
     ];
-    const tabY = panelTop + 84;
-    const tabW = Math.min(138, Math.floor((panelW - 120) / 3));
-    const tabGap = 12;
+    const tabY = panelTop + Math.round(84 * uiScale);
+    const tabW = Math.min(Math.round(170 * uiScale), Math.floor((panelW - Math.round(120 * uiScale)) / 3));
+    const tabGap = Math.round(12 * uiScale);
     const tabStartX = panelX - ((tabW * 3 + tabGap * 2) * 0.5) + tabW * 0.5;
     this.modeTabs = new Map();
     modeMeta.forEach((m, i) => {
       const x = tabStartX + i * (tabW + tabGap);
-      const box = this.add.rectangle(x, tabY, tabW, 34, 0x223f62, 0.97).setInteractive({ useHandCursor: true });
+      const box = this.add.rectangle(x, tabY, tabW, Math.round(34 * uiScale), 0x223f62, 0.97).setInteractive({ useHandCursor: true });
       box.setStrokeStyle(1, 0x7ecdfd, 0.74);
       const tx = this.add.text(x, tabY, m.label, {
         fontFamily: FONT_KR,
-        fontSize: '15px',
+        fontSize: `${Math.max(13, Math.round(15 * uiScale))}px`,
         color: '#eaf6ff'
       }).setOrigin(0.5);
       box.on('pointerdown', () => this.setMode(m.id));
@@ -93,16 +96,16 @@ export default class RankingScene extends Phaser.Scene {
 
     this.statusText = this.add.text(panelX, tabY + 30, '불러오는 중...', {
       fontFamily: FONT_KR,
-      fontSize: '13px',
+      fontSize: `${Math.max(12, Math.round(13 * uiScale))}px`,
       color: '#9bb5d6'
     }).setOrigin(0.5, 0);
 
-    const closeBtn = this.add.rectangle(panelX + panelW * 0.5 - 34, headerY, 32, 30, 0x234463, 0.98)
+    const closeBtn = this.add.rectangle(panelX + panelW * 0.5 - Math.round(34 * uiScale), headerY, Math.round(32 * uiScale), Math.round(30 * uiScale), 0x234463, 0.98)
       .setInteractive({ useHandCursor: true });
     closeBtn.setStrokeStyle(1, 0x89d4ff, 0.9);
     const closeTx = this.add.text(closeBtn.x, closeBtn.y - 0.5, 'X', {
       fontFamily: FONT_KR,
-      fontSize: '16px',
+      fontSize: `${Math.max(14, Math.round(16 * uiScale))}px`,
       color: '#edf7ff',
       fontStyle: '700'
     }).setOrigin(0.5);
@@ -122,6 +125,9 @@ export default class RankingScene extends Phaser.Scene {
     this.board = {
       panelX,
       panelW,
+      panelLeft,
+      panelRight,
+      uiScale,
       tableTop: tabY + 58,
       tableBottom: panelY + panelH * 0.5 - 56
     };
@@ -155,26 +161,37 @@ export default class RankingScene extends Phaser.Scene {
 
   renderHeaders() {
     this.headerGroup.removeAll(true);
-    const w = this.scale.width;
     const y = this.board.tableTop;
+    const uiScale = Number(this.board.uiScale || 1);
+    const fontHeader = Math.max(13, Math.round(14 * uiScale));
+    const left = Number(this.board.panelLeft || 0);
+    const rightEdge = Number(this.board.panelRight || this.scale.width);
+    const colRank = left + Math.round(38 * uiScale);
+    const colName = left + Math.round(122 * uiScale);
+    const colWins = rightEdge - Math.round(306 * uiScale);
+    const colLosses = rightEdge - Math.round(230 * uiScale);
+    const colMmr = rightEdge - Math.round(142 * uiScale);
+    const colTier = rightEdge - Math.round(40 * uiScale);
+    const colStage = rightEdge - Math.round(154 * uiScale);
+    const colScore = rightEdge - Math.round(40 * uiScale);
     const addHead = (x, text, right = false) => {
-      const t = this.add.text(x, y, text, { fontFamily: FONT_KR, fontSize: '14px', color: '#9bb5d6' });
+      const t = this.add.text(x, y, text, { fontFamily: FONT_KR, fontSize: `${fontHeader}px`, color: '#9bb5d6' });
       if (right) t.setOrigin(1, 0);
       this.headerGroup.add(t);
     };
 
     if (this.activeMode === 'pvp') {
-      addHead(82, '순위');
-      addHead(154, '플레이어');
-      addHead(w - 328, '승', true);
-      addHead(w - 276, '패', true);
-      addHead(w - 198, 'MMR', true);
-      addHead(w - 82, '티어', true);
+      addHead(colRank, '순위');
+      addHead(colName, '플레이어');
+      addHead(colWins, '승', true);
+      addHead(colLosses, '패', true);
+      addHead(colMmr, 'MMR', true);
+      addHead(colTier, '티어', true);
     } else {
-      addHead(82, '순위');
-      addHead(154, '플레이어');
-      addHead(w - 210, '스테이지', true);
-      addHead(w - 82, '점수', true);
+      addHead(colRank, '순위');
+      addHead(colName, '플레이어');
+      addHead(colStage, '스테이지', true);
+      addHead(colScore, '점수', true);
     }
   }
 
@@ -188,8 +205,19 @@ export default class RankingScene extends Phaser.Scene {
 
   renderRows(rows) {
     this.rowsGroup.removeAll(true);
-    const w = this.scale.width;
     const list = Array.isArray(rows) ? rows : [];
+    const uiScale = Number(this.board.uiScale || 1);
+    const rowFont = Math.max(13, Math.round(15 * uiScale));
+    const left = Number(this.board.panelLeft || 0);
+    const rightEdge = Number(this.board.panelRight || this.scale.width);
+    const colRank = left + Math.round(38 * uiScale);
+    const colName = left + Math.round(122 * uiScale);
+    const colWins = rightEdge - Math.round(306 * uiScale);
+    const colLosses = rightEdge - Math.round(230 * uiScale);
+    const colMmr = rightEdge - Math.round(142 * uiScale);
+    const colTier = rightEdge - Math.round(40 * uiScale);
+    const colStage = rightEdge - Math.round(154 * uiScale);
+    const colScore = rightEdge - Math.round(40 * uiScale);
 
     let viewRows = list;
     if (viewRows.length === 0 && this.activeMode === 'survival') {
@@ -202,18 +230,18 @@ export default class RankingScene extends Phaser.Scene {
     }
     if (viewRows.length === 0) return;
 
-    const startY = this.board.tableTop + 26;
-    const rowH = 28;
+    const startY = this.board.tableTop + Math.round(26 * uiScale);
+    const rowH = Math.max(28, Math.round(30 * uiScale));
     const maxRows = Math.max(1, Math.floor((this.board.tableBottom - startY) / rowH));
     viewRows.slice(0, maxRows).forEach((r, i) => {
       const y = startY + i * rowH;
-      const rowBg = this.add.rectangle(this.board.panelX, y + 11, this.board.panelW - 46, 24, i % 2 ? 0x163153 : 0x122b48, 0.82);
+      const rowBg = this.add.rectangle(this.board.panelX, y + Math.round(11 * uiScale), this.board.panelW - Math.round(46 * uiScale), Math.max(24, Math.round(24 * uiScale)), i % 2 ? 0x163153 : 0x122b48, 0.82);
       rowBg.setStrokeStyle(1, 0x456fa3, 0.36);
       this.rowsGroup.add(rowBg);
 
       const rankColor = i < 3 ? '#ffd77b' : '#eaf0ff';
-      const rank = this.add.text(82, y, String(i + 1), { fontFamily: FONT_KR, fontSize: '15px', color: rankColor });
-      const name = this.add.text(154, y, String(r?.name || 'Player').slice(0, 22), { fontFamily: FONT_KR, fontSize: '15px', color: '#eaf0ff' });
+      const rank = this.add.text(colRank, y, String(i + 1), { fontFamily: FONT_KR, fontSize: `${rowFont}px`, color: rankColor });
+      const name = this.add.text(colName, y, String(r?.name || 'Player').slice(0, 22), { fontFamily: FONT_KR, fontSize: `${rowFont}px`, color: '#eaf0ff' });
       this.rowsGroup.add(rank);
       this.rowsGroup.add(name);
 
@@ -222,10 +250,10 @@ export default class RankingScene extends Phaser.Scene {
         const losses = Math.max(0, Math.floor(Number(r?.losses || 0)));
         const mmr = Math.max(0, Math.floor(Number(r?.mmr || 1000)));
         const tier = getMmrTierLabel(mmr);
-        const winsTx = this.add.text(w - 328, y, String(wins), { fontFamily: FONT_KR, fontSize: '15px', color: '#adc1dc' }).setOrigin(1, 0);
-        const lossesTx = this.add.text(w - 276, y, String(losses), { fontFamily: FONT_KR, fontSize: '15px', color: '#adc1dc' }).setOrigin(1, 0);
-        const mmrTx = this.add.text(w - 198, y, String(mmr), { fontFamily: FONT_KR, fontSize: '15px', color: '#8fd2ff' }).setOrigin(1, 0);
-        const tierTx = this.add.text(w - 82, y, tier, { fontFamily: FONT_KR, fontSize: '15px', color: '#d8e6ff' }).setOrigin(1, 0);
+        const winsTx = this.add.text(colWins, y, String(wins), { fontFamily: FONT_KR, fontSize: `${rowFont}px`, color: '#adc1dc' }).setOrigin(1, 0);
+        const lossesTx = this.add.text(colLosses, y, String(losses), { fontFamily: FONT_KR, fontSize: `${rowFont}px`, color: '#adc1dc' }).setOrigin(1, 0);
+        const mmrTx = this.add.text(colMmr, y, String(mmr), { fontFamily: FONT_KR, fontSize: `${rowFont}px`, color: '#8fd2ff' }).setOrigin(1, 0);
+        const tierTx = this.add.text(colTier, y, tier, { fontFamily: FONT_KR, fontSize: `${rowFont}px`, color: '#d8e6ff' }).setOrigin(1, 0);
         this.rowsGroup.add(winsTx);
         this.rowsGroup.add(lossesTx);
         this.rowsGroup.add(mmrTx);
@@ -233,8 +261,8 @@ export default class RankingScene extends Phaser.Scene {
       } else {
         const stage = Math.max(1, Math.floor(Number(r?.best_stage || 1)));
         const score = Math.max(0, Math.floor(Number(r?.best_score || 0)));
-        const stageTx = this.add.text(w - 210, y, String(stage), { fontFamily: FONT_KR, fontSize: '15px', color: '#8fd2ff' }).setOrigin(1, 0);
-        const scoreTx = this.add.text(w - 82, y, String(score), { fontFamily: FONT_KR, fontSize: '15px', color: '#d8e6ff' }).setOrigin(1, 0);
+        const stageTx = this.add.text(colStage, y, String(stage), { fontFamily: FONT_KR, fontSize: `${rowFont}px`, color: '#8fd2ff' }).setOrigin(1, 0);
+        const scoreTx = this.add.text(colScore, y, String(score), { fontFamily: FONT_KR, fontSize: `${rowFont}px`, color: '#d8e6ff' }).setOrigin(1, 0);
         this.rowsGroup.add(stageTx);
         this.rowsGroup.add(scoreTx);
       }

@@ -236,6 +236,8 @@ export default class LobbyScene extends Phaser.Scene {
     const w = this.scale.width;
     const h = this.scale.height;
     const isMobileUi = isMobileDevice();
+    const uiScaleBase = Phaser.Math.Clamp(w / 960, 0.85, 1.28);
+    const uiScale = isMobileUi ? Math.min(1.02, uiScaleBase) : uiScaleBase;
 
     this.sound.stopAll();
     const settings = SettingsSystem.load();
@@ -243,8 +245,8 @@ export default class LobbyScene extends Phaser.Scene {
     if (settings.bgmEnabled) bgm.play();
 
     const bgObjs = this.createLobbyBackground(w, h);
-    const panelW = Math.min(660, Math.max(430, w - 56));
-    const panelH = Math.min(392, Math.max(292, h - 102));
+    const panelW = Math.min(Math.floor(760 * uiScale), Math.max(Math.floor(420 * uiScale), w - Math.round(220 * uiScale)));
+    const panelH = Math.min(Math.floor(400 * uiScale), Math.max(Math.floor(280 * uiScale), h - Math.round(180 * uiScale)));
     const panelX = w * 0.5;
     const panelY = h * 0.5;
     const panelLeft = panelX - panelW * 0.5;
@@ -290,24 +292,24 @@ export default class LobbyScene extends Phaser.Scene {
     const previewY = isMobileUi ? (panelY - panelH * 0.18) : (panelY + panelH * 0.18);
     const previewObjs = this.createLobbyBattlePreview(previewX, previewY, previewRadius);
 
-    const topRightPad = 24;
-    const iconGap = 8;
-    const iconW = 38;
+    const topRightPad = Math.round(24 * uiScale);
+    const iconGap = Math.round(8 * uiScale);
+    const iconW = Math.round(38 * uiScale);
     const rankX = w - topRightPad - iconW * 0.5;
     const codexX = rankX - iconW - iconGap;
     const friendX = codexX - iconW - iconGap;
     const authX = friendX - iconW - iconGap;
 
-    const coin = this.add.image(24, 24, 'tex_gold').setOrigin(0.5).setScale(0.76);
-    const goldText = this.add.text(38, 13, `${SaveSystem.getTotalGold()}`, {
+    const coin = this.add.image(Math.round(24 * uiScale), Math.round(24 * uiScale), 'tex_gold').setOrigin(0.5).setScale(0.76 * uiScale);
+    const goldText = this.add.text(Math.round(38 * uiScale), Math.round(13 * uiScale), `${SaveSystem.getTotalGold()}`, {
       fontFamily: FONT_KR,
-      fontSize: '18px',
+      fontSize: `${Math.max(14, Math.round(18 * uiScale))}px`,
       color: '#ffda72'
     }).setOrigin(0, 0);
     let authSession = AuthSystem.loadSession();
-    const authStatus = this.add.text(w - topRightPad, 46, '', {
+    const authStatus = this.add.text(w - topRightPad, Math.round(46 * uiScale), '', {
       fontFamily: FONT_KR,
-      fontSize: '12px',
+      fontSize: `${Math.max(11, Math.round(12 * uiScale))}px`,
       color: '#aab6d6'
     }).setOrigin(1, 0);
 
@@ -339,22 +341,22 @@ export default class LobbyScene extends Phaser.Scene {
       return g;
     };
 
-    const authBtnShadow = this.add.rectangle(authX, 26, 40, 32, 0x071223, 0.55);
-    const authBtn = this.add.rectangle(authX, 24, 40, 32, 0x243a58, 0.96).setInteractive({ useHandCursor: true });
+    const authBtnShadow = this.add.rectangle(authX, Math.round(26 * uiScale), Math.round(40 * uiScale), Math.round(32 * uiScale), 0x071223, 0.55);
+    const authBtn = this.add.rectangle(authX, Math.round(24 * uiScale), Math.round(40 * uiScale), Math.round(32 * uiScale), 0x243a58, 0.96).setInteractive({ useHandCursor: true });
     authBtn.setStrokeStyle(1, 0x85b8ff, 0.78);
-    const friendBtnShadow = this.add.rectangle(friendX, 26, 40, 32, 0x071223, 0.55);
-    const friendBtn = this.add.rectangle(friendX, 24, 40, 32, 0x243a58, 0.96).setInteractive({ useHandCursor: true });
+    const friendBtnShadow = this.add.rectangle(friendX, Math.round(26 * uiScale), Math.round(40 * uiScale), Math.round(32 * uiScale), 0x071223, 0.55);
+    const friendBtn = this.add.rectangle(friendX, Math.round(24 * uiScale), Math.round(40 * uiScale), Math.round(32 * uiScale), 0x243a58, 0.96).setInteractive({ useHandCursor: true });
     friendBtn.setStrokeStyle(1, 0x85b8ff, 0.78);
-    const friendBtnGlyph = drawFriendTopGlyph(friendX, 24);
-    let authBtnGlyph = drawAuthTopGlyph(authX, 24, authSession?.token ? 'logout' : 'login');
+    const friendBtnGlyph = drawFriendTopGlyph(friendX, Math.round(24 * uiScale));
+    let authBtnGlyph = drawAuthTopGlyph(authX, Math.round(24 * uiScale), authSession?.token ? 'logout' : 'login');
     const setAuthBtnIcon = (mode) => {
       if (authBtnGlyph?.active) authBtnGlyph.destroy();
-      authBtnGlyph = drawAuthTopGlyph(authX, 24, mode);
+      authBtnGlyph = drawAuthTopGlyph(authX, Math.round(24 * uiScale), mode);
       authBtnGlyph.setAlpha(authBtn.input?.enabled ? 0.95 : 0.52);
     };
-    const friendBadge = this.add.text(friendX + 13, 8, '', {
+    const friendBadge = this.add.text(friendX + Math.round(13 * uiScale), Math.round(8 * uiScale), '', {
       fontFamily: FONT_KR,
-      fontSize: '11px',
+      fontSize: `${Math.max(10, Math.round(11 * uiScale))}px`,
       color: '#ffd700'
     }).setOrigin(1, 0);
     let friendInviteTimer = null;
@@ -1768,12 +1770,12 @@ export default class LobbyScene extends Phaser.Scene {
     };
 
     const mkTopIcon = (x, kind, onClick) => {
-      const boxShadow = this.add.rectangle(x, 26, 40, 32, 0x071223, 0.55);
-      const box = this.add.rectangle(x, 24, 40, 32, 0x243a58, 0.96).setInteractive({ useHandCursor: true });
+      const boxShadow = this.add.rectangle(x, Math.round(26 * uiScale), Math.round(40 * uiScale), Math.round(32 * uiScale), 0x071223, 0.55);
+      const box = this.add.rectangle(x, Math.round(24 * uiScale), Math.round(40 * uiScale), Math.round(32 * uiScale), 0x243a58, 0.96).setInteractive({ useHandCursor: true });
       box.setStrokeStyle(1, 0x86b8ff, 0.86);
       let glyph = null;
-      if (kind === 'book') glyph = drawBookGlyph(x, 24);
-      else if (kind === 'trophy') glyph = drawTrophyGlyph(x, 24);
+      if (kind === 'book') glyph = drawBookGlyph(x, Math.round(24 * uiScale));
+      else if (kind === 'trophy') glyph = drawTrophyGlyph(x, Math.round(24 * uiScale));
 
       box.on('pointerover', () => {
         box.setFillStyle(0x305179, 0.98);
@@ -1799,21 +1801,21 @@ export default class LobbyScene extends Phaser.Scene {
     });
 
     const heroY = h * 0.33;
-    const preTitle = this.add.text(w / 2, heroY - 38, 'TACTICAL SURVIVAL', {
+    const preTitle = this.add.text(w / 2, heroY - Math.round(38 * uiScale), 'TACTICAL SURVIVAL', {
       fontFamily: FONT_KR,
-      fontSize: '11px',
+      fontSize: `${Math.max(10, Math.round(11 * uiScale))}px`,
       color: '#8fd6ff'
     }).setOrigin(0.5).setAlpha(0.84);
     const titleGlow = this.add.text(w / 2, heroY, 'CIRCLES', {
       fontFamily: 'Orbitron, "Rajdhani", "Pretendard", system-ui, sans-serif',
-      fontSize: w < 760 ? '47px' : '59px',
+      fontSize: `${Math.max(42, Math.round((w < 760 ? 47 : 59) * uiScale))}px`,
       color: '#8fcfff',
       stroke: '#8fcfff',
       strokeThickness: 1.2
     }).setOrigin(0.5).setAlpha(0.1).setBlendMode(Phaser.BlendModes.ADD);
     const title = this.add.text(w / 2, heroY, 'CIRCLES', {
       fontFamily: 'Orbitron, "Rajdhani", "Pretendard", system-ui, sans-serif',
-      fontSize: w < 760 ? '45px' : '57px',
+      fontSize: `${Math.max(40, Math.round((w < 760 ? 45 : 57) * uiScale))}px`,
       color: '#f2f9ff',
       stroke: '#89bdf3',
       strokeThickness: 0.45
@@ -1829,23 +1831,23 @@ export default class LobbyScene extends Phaser.Scene {
 
     const sub = this.add.text(w / 2, h * 0.43, '\uC0DD\uC874\uD558\uACE0 \uAC15\uD654\uD558\uACE0 \uB7AD\uD0B9\uC744 \uC62C\uB9AC\uC138\uC694', {
       fontFamily: FONT_KR,
-      fontSize: '17px',
+      fontSize: `${Math.max(14, Math.round(17 * uiScale))}px`,
       color: '#9ab4d8'
     }).setOrigin(0.5);
 
     const hint = this.add.text(w / 2, h * 0.55, '\uBAA8\uB4DC\uB97C \uC120\uD0DD\uD574 \uC2DC\uC791\uD558\uC138\uC694', {
       fontFamily: FONT_KR,
-      fontSize: '14px',
+      fontSize: `${Math.max(12, Math.round(14 * uiScale))}px`,
       color: '#89a4c8'
     }).setOrigin(0.5);
     this.tweens.add({ targets: hint, alpha: 0.46, duration: 1000, yoyo: true, repeat: -1 });
 
     const startY = h * 0.64;
-    const startBtn = this.add.rectangle(w / 2, startY, 314, 52, 0x173459, 0.97).setInteractive({ useHandCursor: true });
+    const startBtn = this.add.rectangle(w / 2, startY, Math.round(314 * uiScale), Math.round(52 * uiScale), 0x173459, 0.97).setInteractive({ useHandCursor: true });
     startBtn.setStrokeStyle(2, 0xff89e5, 0.88);
     const startText = this.add.text(w / 2, startY, '\uC2DC\uC791', {
       fontFamily: FONT_KR,
-      fontSize: '22px',
+      fontSize: `${Math.max(18, Math.round(22 * uiScale))}px`,
       color: '#edf7ff',
       fontStyle: '700'
     }).setOrigin(0.5);
@@ -1860,56 +1862,64 @@ export default class LobbyScene extends Phaser.Scene {
 
     const modeRoot = this.add.container(0, 0).setDepth(2500).setVisible(false);
     const modeDim = this.add.rectangle(0, 0, w, h, 0x000000, 0.58).setOrigin(0).setInteractive();
-    const modeCardW = Math.min(460, w - 44);
-    const modeCardH = 408;
+    const modeCardW = Math.min(Math.round(520 * uiScale), w - Math.round(52 * uiScale));
+    const modeHeaderH = Math.round(44 * uiScale);
+    const modeRowH = Math.round(52 * uiScale);
+    const modeRowGap = Math.round(10 * uiScale);
+    const modeRows = 4;
+    const modeTopPad = Math.round(26 * uiScale);
+    const modeBottomPad = Math.round(26 * uiScale);
+    const modeActionsH = Math.round(44 * uiScale);
+    const modeCardH = modeTopPad + modeHeaderH + Math.round(18 * uiScale) + (modeRows * modeRowH) + ((modeRows - 1) * modeRowGap) + modeBottomPad + modeActionsH;
     const modeCardX = w * 0.5;
     const modeCardY = h * 0.53;
-    const modeCardShadow = this.add.rectangle(modeCardX, modeCardY + 6, modeCardW + 10, modeCardH + 12, 0x050b16, 0.62);
+    const modeCardShadow = this.add.rectangle(modeCardX, modeCardY + Math.round(5 * uiScale), modeCardW + Math.round(8 * uiScale), modeCardH + Math.round(10 * uiScale), 0x050b16, 0.56);
     const modeCard = this.add.rectangle(modeCardX, modeCardY, modeCardW, modeCardH, 0x0f1d33, 0.985);
-    modeCard.setStrokeStyle(1.8, 0x73cbff, 0.84);
-    const modeHeader = this.add.rectangle(modeCardX, modeCardY - modeCardH * 0.5 + 34, modeCardW - 30, 48, 0x142943, 0.35);
-    modeHeader.setStrokeStyle(1, 0x74c7ff, 0.36);
-    const modeTitle = this.add.text(modeCardX, modeCard.y - modeCardH * 0.5 + 34, '모드 선택', {
+    modeCard.setStrokeStyle(1.6, 0x73cbff, 0.74);
+    const modeHeaderY = modeCardY - modeCardH * 0.5 + modeTopPad + modeHeaderH * 0.5;
+    const modeHeader = this.add.rectangle(modeCardX, modeHeaderY, modeCardW - Math.round(26 * uiScale), modeHeaderH, 0x142943, 0.28);
+    modeHeader.setStrokeStyle(1, 0x74c7ff, 0.26);
+    const modeTitle = this.add.text(modeCardX, modeHeaderY, '모드 선택', {
       fontFamily: FONT_KR,
-      fontSize: '25px',
+      fontSize: `${Math.max(19, Math.round(23 * uiScale))}px`,
       color: '#f0f7ff'
     }).setOrigin(0.5);
     modeRoot.add([modeDim, modeCardShadow, modeCard, modeHeader, modeTitle]);
 
     const modeAccent = 0x76cbff;
     const mkModeBtn = (y, label, desc, onClick, enabled = true) => {
-      const bw = modeCardW - 60;
-      const bh = 56;
+      const bw = modeCardW - Math.round(50 * uiScale);
+      const bh = modeRowH;
       const rowX = modeCardX;
       const rowLeft = rowX - bw * 0.5;
-      const shadow = this.add.rectangle(rowX, y + 2, bw + 4, bh + 6, enabled ? modeAccent : 0x24364f, enabled ? 0.08 : 0.04)
+      const shadow = this.add.rectangle(rowX, y + Math.round(1 * uiScale), bw + Math.round(2 * uiScale), bh + Math.round(3 * uiScale), enabled ? modeAccent : 0x24364f, enabled ? 0.05 : 0.03)
         .setBlendMode(Phaser.BlendModes.ADD);
-      const bg = this.add.rectangle(rowX, y, bw, bh, enabled ? 0x19324f : 0x1d2b43, 0.985)
+      const bg = this.add.rectangle(rowX, y, bw, bh, enabled ? 0x1b3453 : 0x1d2b43, 0.94)
         .setInteractive(enabled ? { useHandCursor: true } : undefined);
-      bg.setStrokeStyle(1.35, enabled ? 0x67b7ed : 0x466084, enabled ? 0.82 : 0.5);
-      const accent = this.add.rectangle(rowLeft + 4, y, 3, bh - 8, enabled ? modeAccent : 0x4b6484, enabled ? 0.78 : 0.5);
-      const tx = this.add.text(rowLeft + 16, y - 10, label, {
+      bg.setStrokeStyle(1.2, enabled ? 0x67b7ed : 0x466084, enabled ? 0.7 : 0.45);
+      const accent = this.add.rectangle(rowLeft + Math.round(8 * uiScale), y, 2, bh - Math.round(14 * uiScale), enabled ? modeAccent : 0x4b6484, enabled ? 0.74 : 0.45);
+      const tx = this.add.text(rowLeft + Math.round(18 * uiScale), y - Math.round(8 * uiScale), label, {
         fontFamily: FONT_KR,
-        fontSize: '18px',
+        fontSize: `${Math.max(14, Math.round(17 * uiScale))}px`,
         color: enabled ? '#eaf0ff' : '#9ab0d3'
       }).setOrigin(0, 0.5);
-      const sx = this.add.text(rowLeft + 16, y + 12, desc, {
+      const sx = this.add.text(rowLeft + Math.round(18 * uiScale), y + Math.round(10 * uiScale), desc, {
         fontFamily: FONT_KR,
-        fontSize: '13px',
-        color: enabled ? '#9eb7d8' : '#7b8eab'
+        fontSize: `${Math.max(11, Math.round(12 * uiScale))}px`,
+        color: enabled ? '#9ab3d2' : '#778ba8'
       }).setOrigin(0, 0.5);
       if (enabled) {
         bg.on('pointerover', () => {
-          bg.setFillStyle(0x22456a, 1);
-          bg.setStrokeStyle(1.45, 0x90dcff, 0.94);
-          accent.setFillStyle(0x98deff, 0.92);
-          shadow.setAlpha(0.14);
+          bg.setFillStyle(0x24476e, 0.97);
+          bg.setStrokeStyle(1.35, 0x90dcff, 0.88);
+          accent.setFillStyle(0x98deff, 0.86);
+          shadow.setAlpha(0.1);
         });
         bg.on('pointerout', () => {
-          bg.setFillStyle(0x19324f, 0.985);
-          bg.setStrokeStyle(1.35, 0x67b7ed, 0.82);
-          accent.setFillStyle(modeAccent, 0.78);
-          shadow.setAlpha(0.08);
+          bg.setFillStyle(0x1b3453, 0.94);
+          bg.setStrokeStyle(1.2, 0x67b7ed, 0.7);
+          accent.setFillStyle(modeAccent, 0.74);
+          shadow.setAlpha(0.05);
         });
         bg.on('pointerdown', onClick);
       }
@@ -1917,13 +1927,13 @@ export default class LobbyScene extends Phaser.Scene {
       return { bg, tx, sx, accent };
     };
 
-    const closeY = modeCardY + modeCardH * 0.5 - 28;
-    const topRowY = modeCardY - modeCardH * 0.5 + 96;
-    const rowGap = 62;
+    const topRowY = modeHeaderY + modeHeaderH * 0.5 + Math.round(18 * uiScale) + modeRowH * 0.5;
+    const rowGap = modeRowH + modeRowGap;
     const y1 = topRowY;
     const y2 = y1 + rowGap;
     const y3 = y2 + rowGap;
     const y4 = y3 + rowGap;
+    const closeY = modeCardY + modeCardH * 0.5 - Math.round(28 * uiScale);
     mkModeBtn(y1, '스테이지 모드', '스테이지 20 클리어 목표', () => {
       bgm.stop();
       this.scene.start('Game', {
@@ -1969,12 +1979,12 @@ export default class LobbyScene extends Phaser.Scene {
       });
     }, true);
 
-    const closeBtn = this.add.rectangle(modeCardX, closeY, 150, 34, 0x263f5f, 0.95)
+    const closeBtn = this.add.rectangle(modeCardX, closeY, Math.round(140 * uiScale), Math.round(34 * uiScale), 0x263f5f, 0.95)
       .setInteractive({ useHandCursor: true });
     closeBtn.setStrokeStyle(1.35, 0x79ccff, 0.8);
     const closeTx = this.add.text(closeBtn.x, closeBtn.y, '닫기', {
       fontFamily: FONT_KR,
-      fontSize: '16px',
+      fontSize: `${Math.max(13, Math.round(16 * uiScale))}px`,
       color: '#e6f0ff'
     }).setOrigin(0.5);
     const closeModeRoot = () => {
@@ -2008,13 +2018,13 @@ export default class LobbyScene extends Phaser.Scene {
       openModeRoot();
     });
 
-    const shopY = startY + 62;
-    const shopBtnAura = this.add.rectangle(w / 2, shopY, 332, 58, neonCyan, 0.055).setBlendMode(Phaser.BlendModes.ADD);
-    const shopBtn = this.add.rectangle(w / 2, shopY, 314, 46, 0x1c3556, 0.97).setInteractive({ useHandCursor: true });
+    const shopY = startY + Math.round(62 * uiScale);
+    const shopBtnAura = this.add.rectangle(w / 2, shopY, Math.round(332 * uiScale), Math.round(58 * uiScale), neonCyan, 0.055).setBlendMode(Phaser.BlendModes.ADD);
+    const shopBtn = this.add.rectangle(w / 2, shopY, Math.round(314 * uiScale), Math.round(46 * uiScale), 0x1c3556, 0.97).setInteractive({ useHandCursor: true });
     shopBtn.setStrokeStyle(1.5, 0x8ee1ff, 0.82);
     const shopText = this.add.text(w / 2, shopY, '\uC0C1\uC810', {
       fontFamily: FONT_KR,
-      fontSize: '20px',
+      fontSize: `${Math.max(16, Math.round(20 * uiScale))}px`,
       color: '#eaf2ff'
     }).setOrigin(0.5);
     this.tweens.add({

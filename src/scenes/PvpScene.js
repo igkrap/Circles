@@ -251,61 +251,73 @@ export default class PvpScene extends Phaser.Scene {
   }
 
   layoutHud(w, h) {
-    const xpH = 8;
-    const pad = w < 720 ? 8 : 12;
+    const hudScaleBase = Phaser.Math.Clamp(w / 960, 0.75, 1.35);
+    const hudScale = w < 720 ? Math.min(1, hudScaleBase) : hudScaleBase;
+    const xpH = Math.max(6, Math.round(8 * hudScale));
+    const pad = Math.round((w < 720 ? 8 : 12) * hudScale);
 
-    const topW = Math.min(380, Math.max(280, Math.floor(w * 0.34)));
-    this.ui.topRibbon.setPosition(Math.floor(w * 0.5), 6).setSize(topW, 50);
-    this.ui.topRibbonGlow.setPosition(Math.floor(w * 0.5), 6).setSize(Math.max(40, topW - 4), 2);
+    this.ui.gold.setFontSize(Math.max(12, Math.round(16 * hudScale)));
+    this.ui.minimapLabel.setFontSize(Math.max(8, Math.round(10 * hudScale)));
+    this.ui.stage.setFontSize(Math.max(16, Math.round(22 * hudScale)));
+    this.ui.stageSub.setFontSize(Math.max(10, Math.round(12 * hudScale)));
+    this.ui.modeObjective.setFontSize(Math.max(10, Math.round(12 * hudScale)));
+    this.ui.time.setFontSize(Math.max(14, Math.round(19 * hudScale)));
+    this.ui.hp.setFontSize(Math.max(11, Math.round(15 * hudScale)));
+    this.ui.shield.setFontSize(Math.max(10, Math.round(13 * hudScale)));
+    this.ui.synergy.setFontSize(Math.max(9, Math.round(11 * hudScale)));
 
-    const goldW = w < 720 ? 150 : 168;
-    this.ui.goldPanel.setPosition(pad, 8).setSize(goldW, 30);
-    this.ui.coin.setPosition(pad + 12, 22);
-    this.ui.gold.setPosition(pad + 26, 11);
+    const topW = Math.min(Math.floor(380 * hudScale), Math.max(Math.floor(280 * hudScale), Math.floor(w * 0.34)));
+    this.ui.topRibbon.setPosition(Math.floor(w * 0.5), Math.round(6 * hudScale)).setSize(topW, Math.round(50 * hudScale));
+    this.ui.topRibbonGlow.setPosition(Math.floor(w * 0.5), Math.round(6 * hudScale)).setSize(Math.max(Math.round(40 * hudScale), topW - 4), Math.max(1, Math.round(2 * hudScale)));
 
-    const mmW = w < 720 ? 112 : 132;
-    const mmH = w < 720 ? 78 : 92;
+    const goldW = Math.round((w < 720 ? 150 : 168) * hudScale);
+    this.ui.goldPanel.setPosition(pad, Math.round(8 * hudScale)).setSize(goldW, Math.round(30 * hudScale));
+    this.ui.coin.setPosition(pad + Math.round(12 * hudScale), Math.round(22 * hudScale)).setScale(0.78 * hudScale);
+    this.ui.gold.setPosition(pad + Math.round(26 * hudScale), Math.round(11 * hudScale));
+
+    const mmW = Math.round((w < 720 ? 112 : 132) * hudScale);
+    const mmH = Math.round((w < 720 ? 78 : 92) * hudScale);
     const mmX = pad;
-    const mmY = 42;
-    const mmHeaderH = 18;
+    const mmY = Math.round(42 * hudScale);
+    const mmHeaderH = Math.round(18 * hudScale);
     this.ui.minimapBg.setPosition(mmX, mmY).setSize(mmW, mmH);
     this.ui.minimapHeader.setPosition(mmX, mmY).setSize(mmW, mmHeaderH);
-    this.ui.minimapLabel.setPosition(mmX + 8, mmY + 3);
-    this.ui.minimapLayout = { x: mmX, y: mmY + mmHeaderH, w: mmW, h: mmH - mmHeaderH, pad: 5 };
+    this.ui.minimapLabel.setPosition(mmX + Math.round(8 * hudScale), mmY + Math.round(3 * hudScale));
+    this.ui.minimapLayout = { x: mmX, y: mmY + mmHeaderH, w: mmW, h: mmH - mmHeaderH, pad: Math.max(4, Math.round(5 * hudScale)) };
 
-    this.ui.stage.setPosition(w * 0.5, 10);
-    this.ui.stageSub.setPosition(w * 0.5, 31);
-    this.ui.modeObjective.setPosition(w * 0.5, 47);
+    this.ui.stage.setPosition(w * 0.5, Math.round(10 * hudScale));
+    this.ui.stageSub.setPosition(w * 0.5, Math.round(31 * hudScale));
+    this.ui.modeObjective.setPosition(w * 0.5, Math.round(47 * hudScale));
 
-    const timeW = w < 720 ? 96 : 108;
-    this.ui.timePanel.setPosition(w - pad - timeW, 8).setSize(timeW, 32);
-    this.ui.time.setPosition(w - pad - 8, 24);
+    const timeW = Math.round((w < 720 ? 96 : 108) * hudScale);
+    this.ui.timePanel.setPosition(w - pad - timeW, Math.round(8 * hudScale)).setSize(timeW, Math.round(32 * hudScale));
+    this.ui.time.setPosition(w - pad - Math.round(8 * hudScale), Math.round(24 * hudScale));
 
     this.ui.xpBarBg.setPosition(0, h);
     this.ui.xpBarBg.setSize(w, xpH);
     this.ui.xpBarFill.setPosition(0, h);
     this.ui.xpBarFill.setSize(w, xpH);
-    this.ui.xpBarEdge.setPosition(0, h - xpH + 1).setSize(w, 1);
+    this.ui.xpBarEdge.setPosition(0, h - xpH + 1).setSize(w, Math.max(1, Math.round(hudScale)));
 
-    const statusW = Math.min(300, Math.max(220, Math.floor(w * 0.36)));
-    const statusH = 72;
+    const statusW = Math.min(Math.floor(300 * hudScale), Math.max(Math.floor(220 * hudScale), Math.floor(w * 0.33)));
+    const statusH = Math.round(72 * hudScale);
     const statusX = pad;
-    const statusY = h - xpH - 8 - statusH;
+    const statusY = h - xpH - Math.round(8 * hudScale) - statusH;
     this.ui.statusBg.setPosition(statusX, statusY).setSize(statusW, statusH);
-    this.ui.statusAccent.setPosition(statusX + 1, statusY + 1).setSize(4, statusH - 2);
-    this.ui.statusLine.setPosition(statusX + 14, statusY + 36).setSize(statusW - 28, 10);
-    this.ui.statusLineFill.setPosition(statusX + 15, statusY + 37).setSize(Math.max(0, statusW - 30), 8);
-    this.ui.hp.setPosition(statusX + 14, statusY + 8);
-    this.ui.shield.setPosition(statusX + statusW - 14, statusY + 10);
-    this.ui.synergy.setPosition(statusX + 14, statusY + 54);
+    this.ui.statusAccent.setPosition(statusX + 1, statusY + 1).setSize(Math.max(3, Math.round(4 * hudScale)), statusH - 2);
+    this.ui.statusLine.setPosition(statusX + Math.round(14 * hudScale), statusY + Math.round(36 * hudScale)).setSize(statusW - Math.round(28 * hudScale), Math.round(10 * hudScale));
+    this.ui.statusLineFill.setPosition(statusX + Math.round(15 * hudScale), statusY + Math.round(37 * hudScale)).setSize(Math.max(0, statusW - Math.round(30 * hudScale)), Math.round(8 * hudScale));
+    this.ui.hp.setPosition(statusX + Math.round(14 * hudScale), statusY + Math.round(8 * hudScale));
+    this.ui.shield.setPosition(statusX + statusW - Math.round(14 * hudScale), statusY + Math.round(10 * hudScale));
+    this.ui.synergy.setPosition(statusX + Math.round(14 * hudScale), statusY + Math.round(54 * hudScale));
     this.ui.statusLayout = { x: statusX, y: statusY, w: statusW, h: statusH };
 
-    const box = w < 720 ? 46 : 52;
-    const gap = w < 720 ? 6 : 8;
+    const box = Math.round((w < 720 ? 46 : 52) * hudScale);
+    const gap = Math.max(4, Math.round((w < 720 ? 6 : 8) * hudScale));
     const gridW = box * 2 + gap;
     const gridH = box * 2 + gap;
     const gridX = w - pad - gridW;
-    const gridY = h - xpH - 8 - gridH;
+    const gridY = h - xpH - Math.round(8 * hudScale) - gridH;
 
     this.ui.skillSlots.forEach((slot, idx) => {
       const r = Math.floor(idx / 2);
@@ -315,7 +327,7 @@ export default class PvpScene extends Phaser.Scene {
       slot.rect = { x, y, w: box, h: box };
       slot.bg.setPosition(x + box * 0.5, y + box * 0.5).setSize(box, box);
       slot.border.setPosition(x + box * 0.5, y + box * 0.5).setSize(box, box);
-      slot.num.setPosition(x + 4, y + 2).setFontSize(Math.max(10, Math.floor(box * 0.18)));
+      slot.num.setPosition(x + Math.round(4 * hudScale), y + Math.round(2 * hudScale)).setFontSize(Math.max(10, Math.floor(box * 0.18)));
       slot.icon.setPosition(x + box * 0.5, y + box * 0.5 + 2).setFontSize(Math.max(10, Math.floor(box * 0.21)));
     });
   }

@@ -28,8 +28,8 @@ async function tryLockLandscape() {
 const config = {
   type: Phaser.AUTO,
   parent: 'app',
-  width: 960,
-  height: 540,
+  width: 1280,
+  height: 720,
   backgroundColor: '#0b0f17',
   antialias: true,
   antialiasGL: true,

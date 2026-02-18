@@ -935,6 +935,13 @@ function getServerAuthorizedDamage(kind, key, attackerLevel, targetType = 'pvp',
   return clamp(basic, 1, targetType === 'pve' ? 32 : 26);
 }
 
+function getServerLifeStealRatio(profile = null) {
+  const slash = getSkillRank(profile, 'FWD_SLASH') > 0;
+  const dash = getSkillRank(profile, 'DASH') > 0;
+  const spin = getSkillRank(profile, 'SPIN_SLASH') > 0;
+  return slash && dash && spin ? 0.12 : 0;
+}
+
 function getServerRangeAndArc(kind, key, profile = null) {
   const skillKey = kind === 'skill' ? normalizeSkillKey(key) : 'BASIC';
   const rangeMul = Math.max(0.25, Number(profile?.rangeMul || 1));
@@ -1661,7 +1668,22 @@ class BattleSurvivalRoom extends Room {
       const dmg = getServerAuthorizedDamage(kind, skillKey, attacker.level, 'pve', combat);
       if (dmg <= 0) return;
       e.hp = Math.max(0, e.hp - dmg);
-      this.broadcast('pve.damage', { id, hp: e.hp, damage: dmg, fromSid });
+      if (this.isCoopMode) {
+        const lifeStealRatio = getServerLifeStealRatio(combat);
+        if (lifeStealRatio > 0 && attacker.hp < attacker.maxHp) {
+          combat.lifeStealAcc = Math.max(0, Number(combat.lifeStealAcc || 0)) + (dmg * lifeStealRatio);
+          const heal = Math.floor(combat.lifeStealAcc * 10) / 10;
+          if (heal > 0) {
+            combat.lifeStealAcc = Math.max(0, combat.lifeStealAcc - heal);
+            const healedHp = Math.min(attacker.maxHp, attacker.hp + heal);
+            attacker.hp = Math.round(healedHp * 10) / 10;
+            if (attacker.hp >= attacker.maxHp) combat.lifeStealAcc = 0;
+          }
+        } else if (lifeStealRatio <= 0) {
+          combat.lifeStealAcc = 0;
+        }
+      }
+      this.broadcast('pve.damage', { id, hp: e.hp, damage: dmg, fromSid, attackerHp: attacker.hp });
       if (e.hp <= 0) {
         const xpGain = e.type === 'boss'
           ? 220
@@ -1828,6 +1850,7 @@ class BattleSurvivalRoom extends Room {
         critChance: 0,
         xpGainMul: 1,
         hpRegenPerSec: 0,
+        lifeStealAcc: 0,
         maxHpMul: 1,
         moveMul: 1,
         ranks: Object.create(null),
@@ -2862,6 +2885,7 @@ class BattleSurvivalRoom extends Room {
       critChance: 0,
       xpGainMul: 1,
       hpRegenPerSec: 0,
+      lifeStealAcc: 0,
       maxHpMul: 1,
       moveMul: 1,
       ranks: Object.create(null)
