@@ -172,7 +172,7 @@ export default class PvpScene extends Phaser.Scene {
       fontFamily: fontDisplay,
       fontSize: '19px',
       color: HUD_COLOR_TEXT_MAIN
-    }).setOrigin(1, 0).setScrollFactor(0);
+    }).setOrigin(1, 0.5).setScrollFactor(0);
 
     this.ui.xpBarBg = this.add.rectangle(0, 0, this.scale.width, 8, 0x0f1d31, 0.98).setOrigin(0, 1).setScrollFactor(0);
     this.ui.xpBarBg.setStrokeStyle(1, HUD_COLOR_PANEL_STROKE, 1);
@@ -279,7 +279,7 @@ export default class PvpScene extends Phaser.Scene {
 
     const timeW = w < 720 ? 96 : 108;
     this.ui.timePanel.setPosition(w - pad - timeW, 8).setSize(timeW, 32);
-    this.ui.time.setPosition(w - pad - 8, 10);
+    this.ui.time.setPosition(w - pad - 8, 24);
 
     this.ui.xpBarBg.setPosition(0, h);
     this.ui.xpBarBg.setSize(w, xpH);

@@ -1849,7 +1849,7 @@ export default class GameScene extends Phaser.Scene {
       fontFamily: fontDisplay,
       fontSize: '17px',
       color: HUD_COLOR_TEXT_MAIN
-    }).setOrigin(1, 0).setScrollFactor(0);
+    }).setOrigin(1, 0.5).setScrollFactor(0);
     this.ui.ping = this.add.text(this.scale.width - 18, 34, '', {
       fontFamily: fontBody,
       fontSize: '10px',
@@ -2064,8 +2064,7 @@ export default class GameScene extends Phaser.Scene {
     const pauseGap = 6;
     const timeX = rightX - pauseW - pauseGap - timeW;
     this.ui.timePanel.setPosition(timeX, topRowY).setSize(timeW, topRowH);
-    this.ui.time.setPosition(timeX + timeW - 8, topRowY + 2);
-    this.ui.ping.setPosition(timeX + timeW - 8, topRowY + 18);
+    this.ui.time.setPosition(timeX + timeW - 8, topRowY + topRowH * 0.5);
     if (this.pauseUi?.pauseBtn?.active && this.pauseUi?.pauseTxt?.active) {
       const px = rightX - pauseW * 0.5;
       const py = topRowY + topRowH * 0.5;
@@ -2080,6 +2079,7 @@ export default class GameScene extends Phaser.Scene {
     const mmY = topRowY + topRowH + 6;
     this.ui.minimapBg.setPosition(mmX, mmY).setSize(mmW, mmH);
     this.ui.minimapLayout = { x: mmX, y: mmY, w: mmW, h: mmH, pad: 4 };
+    this.ui.ping.setPosition(mmX + mmW, mmY + mmH + 4);
 
     this.ui.stage.setPosition(w * 0.5, 10);
     this.ui.stageSub.setPosition(w * 0.5, 27);
