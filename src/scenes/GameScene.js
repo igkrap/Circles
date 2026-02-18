@@ -65,9 +65,10 @@ function getMmrTierLabel(mmr) {
   return 'Bronze';
 }
 
-class GoldPickup extends Phaser.Physics.Arcade.Image {
+class GoldPickup extends Phaser.Physics.Arcade.Sprite {
   constructor(scene, x, y, amount) {
-    super(scene, x, y, 'tex_gold');
+    const hasSheet = scene.textures.exists('spr_gold_coin');
+    super(scene, x, y, hasSheet ? 'spr_gold_coin' : 'tex_gold', 0);
     this.amount = amount;
 
     scene.add.existing(this);
@@ -76,6 +77,9 @@ class GoldPickup extends Phaser.Physics.Arcade.Image {
     this.setDepth(5);
     this.setCircle(9);
     this.body.setAllowGravity(false);
+    if (hasSheet && scene.anims.exists('gold_spin')) {
+      this.play('gold_spin');
+    }
 
     const vx = Phaser.Math.Between(-30, 30);
     const vy = Phaser.Math.Between(-30, 30);
@@ -98,6 +102,7 @@ class Enemy extends Phaser.Physics.Arcade.Sprite {
     this.maxHp = hp;
     this.hp = hp;
     this.speed = speed;
+    this.visual = null;
 
     scene.add.existing(this);
     scene.physics.add.existing(this);
@@ -111,10 +116,35 @@ class Enemy extends Phaser.Physics.Arcade.Sprite {
     if (type === EnemyType.MINIBOSS) {
       this.setScale(1.18);
     }
+    const visualKey = type === EnemyType.SCOUT ? 'spr_enemy_scout'
+      : type === EnemyType.NORMAL ? 'spr_enemy_normal'
+      : type === EnemyType.TANK ? 'spr_enemy_tank'
+      : type === EnemyType.ELITE || type === EnemyType.MINIBOSS ? 'spr_enemy_elite'
+      : type === EnemyType.BOSS ? (scene.textures.exists('spr_enemy_boss') ? 'spr_enemy_boss' : 'img_enemy_boss_gif')
+      : null;
+    const animKey = type === EnemyType.SCOUT ? 'enemy_scout_cycle'
+      : type === EnemyType.NORMAL ? 'enemy_normal_cycle'
+      : type === EnemyType.TANK ? 'enemy_tank_cycle'
+      : type === EnemyType.ELITE || type === EnemyType.MINIBOSS ? 'enemy_elite_cycle'
+      : type === EnemyType.BOSS ? 'enemy_boss_cycle'
+      : null;
+    if (visualKey && scene.textures.exists(visualKey)) {
+      this.setVisible(false);
+      const useStaticImage = type === EnemyType.BOSS && visualKey === 'img_enemy_boss_gif';
+      this.visual = useStaticImage
+        ? scene.add.image(x, y, visualKey).setDepth(3)
+        : scene.add.sprite(x, y, visualKey, 0).setDepth(3);
+      const baseSize = r * 2.4;
+      this.visual.setDisplaySize(baseSize, baseSize);
+      if (type === EnemyType.MINIBOSS) this.visual.setScale(1.18);
+      if (!useStaticImage && animKey && scene.anims.exists(animKey)) this.visual.play(animKey);
+    }
 
     this.shadow = scene.add.image(x, y + r + 6, 'tex_shadow').setDepth(2).setAlpha(0.42);
     this.shadow.setDisplaySize(r * 2.1, Math.max(10, r * 0.85));
     this.once('destroy', () => {
+      this.visual?.destroy();
+      this.visual = null;
       this.shadow?.destroy();
       this.shadow = null;
     });
@@ -212,6 +242,12 @@ export default class GameScene extends Phaser.Scene {
     this.player.setCircle(15);
     this.player.setCollideWorldBounds(true);
     this.playerVisual = null;
+    if (this.textures.exists('spr_player')) {
+      this.player.setVisible(false);
+      this.playerVisual = this.add.sprite(this.player.x, this.player.y, 'spr_player', 0).setDepth(4);
+      this.playerVisual.setDisplaySize(38, 38);
+      if (this.anims.exists('player_cycle')) this.playerVisual.play('player_cycle');
+    }
     this.playerShadow = this.add.image(this.player.x, this.player.y + 20, 'tex_shadow').setDepth(2).setAlpha(0.45);
     this.playerShadow.setDisplaySize(42, 18);
     this.playerAura = this.add.image(this.player.x, this.player.y, 'tex_aura_ring').setDepth(3).setAlpha(0.55);
@@ -381,6 +417,15 @@ export default class GameScene extends Phaser.Scene {
       this.defenseCoreBody?.destroy();
       this.defenseCoreBody = null;
     });
+  }
+
+  makeGoldUiIcon(x = 0, y = 0) {
+    if (this.textures.exists('spr_gold_coin')) {
+      const coin = this.add.sprite(x, y, 'spr_gold_coin', 0);
+      if (this.anims.exists('gold_spin')) coin.play('gold_spin');
+      return coin;
+    }
+    return this.add.image(x, y, 'tex_gold');
   }
 
   createDefenseCore(x, y) {
@@ -1826,7 +1871,7 @@ export default class GameScene extends Phaser.Scene {
     this.ui.goldPanel = this.add.rectangle(0, 0, 144, 30, HUD_COLOR_PANEL, 0.78).setOrigin(0, 0).setScrollFactor(0).setVisible(false);
     this.ui.goldPanel.setStrokeStyle(1, HUD_COLOR_PANEL_STROKE, 0.95);
     this.ui.gold = this.add.text(0, 0, '', { fontFamily: fontDisplay, fontSize: '16px', color: HUD_COLOR_GOLD }).setScrollFactor(0);
-    this.ui.coin = this.add.image(0, 0, 'tex_gold').setScale(0.78).setScrollFactor(0);
+    this.ui.coin = this.makeGoldUiIcon(0, 0).setScale(0.96).setScrollFactor(0);
 
     this.ui.minimapBg = this.add.rectangle(0, 0, 122, 84, HUD_COLOR_PANEL_DARK, 0.84).setOrigin(0, 0).setScrollFactor(0);
     this.ui.minimapBg.setStrokeStyle(2, HUD_COLOR_PANEL_STROKE, 0.95);
@@ -2075,7 +2120,8 @@ export default class GameScene extends Phaser.Scene {
 
     const goldW = Math.round((w < 720 ? 132 : 144) * hudScale);
     this.ui.goldPanel.setPosition(pad, Math.round(8 * hudScale)).setSize(goldW, Math.round(30 * hudScale));
-    this.ui.coin.setPosition(pad + Math.round(12 * hudScale), Math.round(22 * hudScale)).setScale(0.78 * hudScale);
+    const coinScale = this.ui.coin.texture?.key === 'spr_gold_coin' ? 0.96 : 0.78;
+    this.ui.coin.setPosition(pad + Math.round(12 * hudScale), Math.round(22 * hudScale)).setScale(coinScale * hudScale);
     this.ui.gold.setPosition(pad + Math.round(26 * hudScale), Math.round(11 * hudScale));
 
     const pauseW = Math.round(30 * hudScale);
@@ -2163,7 +2209,7 @@ export default class GameScene extends Phaser.Scene {
       slot.bg.setPosition(x + box * 0.5, y + box * 0.5).setSize(box, box);
       slot.border.setPosition(x + box * 0.5, y + box * 0.5).setSize(box, box);
       slot.num.setPosition(x + Math.round(4 * hudScale), y + Math.round(2 * hudScale)).setFontSize(Math.max(10, Math.floor(box * 0.18)));
-      slot.iconSprite.setPosition(x + box * 0.5, y + box * 0.5 + 1).setDisplaySize(box * 0.4, box * 0.4).setAlpha(0.98);
+      slot.iconSprite.setPosition(x + box * 0.5, y + box * 0.5 + 1).setDisplaySize(box * 0.41, box * 0.41).setAlpha(0.98);
       slot.icon.setPosition(x + box * 0.5, y + box * 0.5 + 2).setFontSize(Math.max(10, Math.floor(box * 0.21)));
       slot.rank.setPosition(x + box - Math.round(5 * hudScale), y + box - Math.round(5 * hudScale)).setFontSize(Math.max(10, Math.floor(box * 0.18)));
       slot.cdText.setPosition(x + box * 0.5, y + box * 0.5).setFontSize(Math.max(10, Math.floor(box * 0.19)));
@@ -2212,7 +2258,7 @@ export default class GameScene extends Phaser.Scene {
       const sx = traitStartX + i * (traitIconSize + traitGap);
       const sy = traitY;
       slot.slotBg.setVisible(false).setPosition(sx, sy).setSize(traitIconSize, traitIconSize);
-      slot.icon.setVisible(false).setPosition(sx + traitIconSize * 0.5, sy + traitIconSize * 0.5).setDisplaySize(traitIconSize - 2, traitIconSize - 2);
+      slot.icon.setVisible(false).setPosition(sx + traitIconSize * 0.5, sy + traitIconSize * 0.5).setDisplaySize(traitIconSize - 3, traitIconSize - 3);
       slot.rank.setVisible(false).setPosition(sx + traitIconSize - 1, sy + traitIconSize - 1).setFontSize(Math.max(8, Math.round(9 * hudScale)));
     });
   }
@@ -2620,6 +2666,7 @@ export default class GameScene extends Phaser.Scene {
         }
         e.body.setVelocity(0, 0);
         e.setPosition(e.x, e.y);
+        if (e.visual) e.visual.setPosition(e.x, e.y);
         if (e.shadow) e.shadow.setPosition(e.x, e.y + (e.body?.radius ?? 14) + 7);
         return;
       }
@@ -2643,6 +2690,7 @@ export default class GameScene extends Phaser.Scene {
       const dy = target.y - e.y;
       const len = Math.hypot(dx, dy) || 1;
       e.body.setVelocity((dx / len) * e.speed * speedMul * this.enemyPace, (dy / len) * e.speed * speedMul * this.enemyPace);
+      if (e.visual) e.visual.setPosition(e.x, e.y);
       if (e.shadow) e.shadow.setPosition(e.x, e.y + (e.body?.radius ?? 14) + 7);
     });
 
@@ -2869,7 +2917,10 @@ export default class GameScene extends Phaser.Scene {
         slotUi.bg.setFillStyle(unlocked ? 0x12253d : 0x0d192c, unlocked ? 0.9 : 0.74);
         slotUi.num.setColor(unlocked ? '#a7cbe8' : '#6e89a5');
         if (iconKey) {
-          slotUi.iconSprite.setTexture(iconKey).setVisible(true);
+          slotUi.iconSprite
+            .setTexture(iconKey)
+            .setDisplaySize(slotUi.rect.w * 0.41, slotUi.rect.w * 0.41)
+            .setVisible(true);
           slotUi.icon.setText('');
         } else {
           slotUi.iconSprite.setVisible(false);
@@ -2924,7 +2975,8 @@ export default class GameScene extends Phaser.Scene {
           .setVisible(true)
           .setFillStyle(0x17325a, 0.92)
           .setStrokeStyle(1, 0x4d81b2, 0.9);
-        slot.icon.setTexture(tex).setVisible(true);
+        const iconSize = Math.max(6, (this.ui.traitLayout?.iconSize ?? 12) - 3);
+        slot.icon.setTexture(tex).setDisplaySize(iconSize, iconSize).setVisible(true);
         slot.rank.setText(rank > 1 ? `${rank}` : '').setVisible(rank > 1);
       }
     }
@@ -3729,8 +3781,10 @@ export default class GameScene extends Phaser.Scene {
   flashActor(actor, tint = 0xffffff, duration = 60) {
     if (!actor || !actor.active) return;
     actor.setTintFill(tint);
+    if (actor.visual?.active) actor.visual.setTintFill(tint);
     this.time.delayedCall(duration, () => {
       if (actor?.active) actor.clearTint();
+      if (actor?.visual?.active) actor.visual.clearTint();
     });
   }
 
@@ -4940,7 +4994,7 @@ export default class GameScene extends Phaser.Scene {
     const speed = Math.max(94, 96 + stageNow * 3.4);
 
     const boss = new Enemy(this, x, y, EnemyType.BOSS, hp, speed);
-    boss.setScale(1.22);
+    boss.visual?.setScale(1.48);
     boss.isBossActor = true;
     this.enemies.add(boss);
 

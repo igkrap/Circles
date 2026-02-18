@@ -21,6 +21,14 @@ export default class PreloadScene extends Phaser.Scene {
     this.load.audio('sfx_clash', 'assets/SFX_CLASH.wav');
     this.load.audio('sfx_battle', 'assets/SFX_BATTLE.mp3');
     this.load.audio('sfx_thunder', 'assets/SFX_THUNDER.wav');
+    this.load.image('img_enemy_boss_gif', 'assets/img_enemy_boss.gif');
+    this.load.spritesheet('spr_enemy_boss', 'assets/img_enemy_boss_sheet.png', { frameWidth: 100, frameHeight: 100 });
+    this.load.spritesheet('spr_player', 'assets/img_player.png', { frameWidth: 192, frameHeight: 192 });
+    this.load.spritesheet('spr_enemy_scout', 'assets/img_enemy_scout.png', { frameWidth: 192, frameHeight: 192 });
+    this.load.spritesheet('spr_enemy_normal', 'assets/img_enemy_normal.png', { frameWidth: 192, frameHeight: 192 });
+    this.load.spritesheet('spr_enemy_tank', 'assets/img_enemy_tank.png', { frameWidth: 192, frameHeight: 192 });
+    this.load.spritesheet('spr_enemy_elite', 'assets/img_enemy_elite.png', { frameWidth: 192, frameHeight: 192 });
+    this.load.spritesheet('spr_gold_coin', 'assets/MonedaD.png', { frameWidth: 16, frameHeight: 16 });
 
     const w = this.scale.width;
     const h = this.scale.height;
@@ -420,6 +428,28 @@ export default class PreloadScene extends Phaser.Scene {
       g.destroy();
     };
 
+    const makeTextureFromSheetFrame = (dstKey, sheetKey, frameIndex = 0) => {
+      const frame = this.textures.getFrame(sheetKey, frameIndex);
+      if (!frame) return false;
+      if (this.textures.exists(dstKey)) this.textures.remove(dstKey);
+      const canvasTex = this.textures.createCanvas(dstKey, frame.width, frame.height);
+      const ctx = canvasTex.context;
+      ctx.clearRect(0, 0, frame.width, frame.height);
+      ctx.drawImage(
+        frame.source.image,
+        frame.cutX,
+        frame.cutY,
+        frame.cutWidth,
+        frame.cutHeight,
+        0,
+        0,
+        frame.width,
+        frame.height
+      );
+      canvasTex.refresh();
+      return true;
+    };
+
     const makeSkillIcon = (key, bgColor, drawSymbol) => {
       const size = 44;
       const g = this.make.graphics({ x: 0, y: 0, add: false });
@@ -448,7 +478,67 @@ export default class PreloadScene extends Phaser.Scene {
     makeOrb('tex_enemy_elite', 15, 0xb96bff, 0x34124d, 0xb96bff);
 
     makeOrb('tex_boss', 30, 0xff3bd7, 0xffffff, 0xff3bd7);
-    makeGoldCoin('tex_gold', 22);
+    if (!makeTextureFromSheetFrame('tex_gold', 'spr_gold_coin', 0)) {
+      makeGoldCoin('tex_gold', 22);
+    }
+    if (this.textures.exists('spr_gold_coin') && !this.anims.exists('gold_spin')) {
+      const frameTotal = this.textures.get('spr_gold_coin').frameTotal;
+      this.anims.create({
+        key: 'gold_spin',
+        frames: this.anims.generateFrameNumbers('spr_gold_coin', { start: 0, end: Math.max(0, frameTotal - 1) }),
+        frameRate: 12,
+        repeat: -1
+      });
+    }
+    if (this.textures.exists('spr_player') && !this.anims.exists('player_cycle')) {
+      this.anims.create({
+        key: 'player_cycle',
+        frames: this.anims.generateFrameNumbers('spr_player', { start: 0, end: 14 }),
+        frameRate: 14,
+        repeat: -1
+      });
+    }
+    if (this.textures.exists('spr_enemy_scout') && !this.anims.exists('enemy_scout_cycle')) {
+      this.anims.create({
+        key: 'enemy_scout_cycle',
+        frames: this.anims.generateFrameNumbers('spr_enemy_scout', { start: 0, end: 14 }),
+        frameRate: 12,
+        repeat: -1
+      });
+    }
+    if (this.textures.exists('spr_enemy_normal') && !this.anims.exists('enemy_normal_cycle')) {
+      this.anims.create({
+        key: 'enemy_normal_cycle',
+        frames: this.anims.generateFrameNumbers('spr_enemy_normal', { start: 0, end: 14 }),
+        frameRate: 12,
+        repeat: -1
+      });
+    }
+    if (this.textures.exists('spr_enemy_tank') && !this.anims.exists('enemy_tank_cycle')) {
+      this.anims.create({
+        key: 'enemy_tank_cycle',
+        frames: this.anims.generateFrameNumbers('spr_enemy_tank', { start: 0, end: 14 }),
+        frameRate: 12,
+        repeat: -1
+      });
+    }
+    if (this.textures.exists('spr_enemy_elite') && !this.anims.exists('enemy_elite_cycle')) {
+      this.anims.create({
+        key: 'enemy_elite_cycle',
+        frames: this.anims.generateFrameNumbers('spr_enemy_elite', { start: 0, end: 14 }),
+        frameRate: 12,
+        repeat: -1
+      });
+    }
+    if (this.textures.exists('spr_enemy_boss') && !this.anims.exists('enemy_boss_cycle')) {
+      const frameTotal = this.textures.get('spr_enemy_boss').frameTotal;
+      this.anims.create({
+        key: 'enemy_boss_cycle',
+        frames: this.anims.generateFrameNumbers('spr_enemy_boss', { start: 0, end: Math.max(0, frameTotal - 1) }),
+        frameRate: 18,
+        repeat: -1
+      });
+    }
 
     // Passive trait icons
     makeSkillIcon('XPGain', 0x3f5bb3, (g, s) => {

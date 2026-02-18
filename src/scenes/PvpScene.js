@@ -32,8 +32,23 @@ function lerp(a, b, t) {
 
 function enemyTextureByType(type) {
   if (type === 'elite') return 'tex_enemy_elite';
+  if (type === 'normal') return 'tex_enemy_normal';
   if (type === 'brute') return 'tex_enemy_tank';
   return 'tex_enemy_scout';
+}
+
+function enemySpriteKeyByType(type) {
+  if (type === 'elite') return 'spr_enemy_elite';
+  if (type === 'normal') return 'spr_enemy_normal';
+  if (type === 'brute') return 'spr_enemy_tank';
+  return 'spr_enemy_scout';
+}
+
+function enemyAnimKeyByType(type) {
+  if (type === 'elite') return 'enemy_elite_cycle';
+  if (type === 'normal') return 'enemy_normal_cycle';
+  if (type === 'brute') return 'enemy_tank_cycle';
+  return 'enemy_scout_cycle';
 }
 
 export default class PvpScene extends Phaser.Scene {
@@ -138,7 +153,10 @@ export default class PvpScene extends Phaser.Scene {
     this.ui.goldPanel = this.add.rectangle(0, 0, 168, 30, HUD_COLOR_PANEL, 0.78).setOrigin(0, 0).setScrollFactor(0);
     this.ui.goldPanel.setStrokeStyle(1, HUD_COLOR_PANEL_STROKE, 0.95);
     this.ui.gold = this.add.text(0, 0, '', { fontFamily: fontDisplay, fontSize: '16px', color: '#ffd166' }).setScrollFactor(0);
-    this.ui.coin = this.add.image(0, 0, 'tex_gold').setScale(0.78).setScrollFactor(0);
+    this.ui.coin = this.textures.exists('spr_gold_coin')
+      ? this.add.sprite(0, 0, 'spr_gold_coin', 0).setScale(0.96).setScrollFactor(0)
+      : this.add.image(0, 0, 'tex_gold').setScale(0.78).setScrollFactor(0);
+    if (this.ui.coin instanceof Phaser.GameObjects.Sprite && this.anims.exists('gold_spin')) this.ui.coin.play('gold_spin');
 
     this.ui.minimapBg = this.add.rectangle(0, 0, 132, 92, HUD_COLOR_PANEL_DARK, 0.84).setOrigin(0, 0).setScrollFactor(0);
     this.ui.minimapBg.setStrokeStyle(2, HUD_COLOR_PANEL_STROKE, 0.95);
@@ -272,7 +290,8 @@ export default class PvpScene extends Phaser.Scene {
 
     const goldW = Math.round((w < 720 ? 150 : 168) * hudScale);
     this.ui.goldPanel.setPosition(pad, Math.round(8 * hudScale)).setSize(goldW, Math.round(30 * hudScale));
-    this.ui.coin.setPosition(pad + Math.round(12 * hudScale), Math.round(22 * hudScale)).setScale(0.78 * hudScale);
+    const coinScale = this.ui.coin.texture?.key === 'spr_gold_coin' ? 0.96 : 0.78;
+    this.ui.coin.setPosition(pad + Math.round(12 * hudScale), Math.round(22 * hudScale)).setScale(coinScale * hudScale);
     this.ui.gold.setPosition(pad + Math.round(26 * hudScale), Math.round(11 * hudScale));
 
     const mmW = Math.round((w < 720 ? 112 : 132) * hudScale);
@@ -688,10 +707,16 @@ export default class PvpScene extends Phaser.Scene {
       seen.add(id);
 
       if (!this.enemies.has(id)) {
-        const tex = enemyTextureByType(String(e.type || 'scout'));
-        const body = this.add.image(Number(e.x || 0), Number(e.y || 0), tex).setDepth(3);
+        const type = String(e.type || 'scout');
+        const tex = enemyTextureByType(type);
+        const spriteKey = enemySpriteKeyByType(type);
+        const animKey = enemyAnimKeyByType(type);
+        const body = this.textures.exists(spriteKey)
+          ? this.add.sprite(Number(e.x || 0), Number(e.y || 0), spriteKey, 0).setDepth(3)
+          : this.add.image(Number(e.x || 0), Number(e.y || 0), tex).setDepth(3);
         const baseSize = tex === 'tex_enemy_elite' ? 34 : tex === 'tex_enemy_tank' ? 32 : 28;
         body.setDisplaySize(baseSize, baseSize);
+        if (body instanceof Phaser.GameObjects.Sprite && this.anims.exists(animKey)) body.play(animKey);
         const shadow = this.add.image(body.x, body.y + 16, 'tex_shadow').setDepth(2).setAlpha(0.4);
         shadow.setDisplaySize(baseSize * 1.5, 12);
 

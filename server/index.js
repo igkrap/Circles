@@ -2457,7 +2457,7 @@ class BattleSurvivalRoom extends Room {
         const y = clamp(Number(enemy.y || 0) + Math.sin(a) * radius, ARENA_MIN_Y, ARENA_MAX_Y);
         let spawnType = 'elite';
         const pick = Math.random();
-        if (stage >= 14 && pick > 0.84) {
+        if (!this.isCoopBossStage(stage) && stage >= 14 && pick > 0.84) {
           spawnType = 'miniboss';
         } else if (pick > 0.52) {
           spawnType = 'tank';

@@ -300,7 +300,10 @@ export default class LobbyScene extends Phaser.Scene {
     const friendX = codexX - iconW - iconGap;
     const authX = friendX - iconW - iconGap;
 
-    const coin = this.add.image(Math.round(24 * uiScale), Math.round(24 * uiScale), 'tex_gold').setOrigin(0.5).setScale(0.76 * uiScale);
+    const coin = this.textures.exists('spr_gold_coin')
+      ? this.add.sprite(Math.round(24 * uiScale), Math.round(24 * uiScale), 'spr_gold_coin', 0).setOrigin(0.5).setScale(0.92 * uiScale)
+      : this.add.image(Math.round(24 * uiScale), Math.round(24 * uiScale), 'tex_gold').setOrigin(0.5).setScale(0.76 * uiScale);
+    if (coin instanceof Phaser.GameObjects.Sprite && this.anims.exists('gold_spin')) coin.play('gold_spin');
     const goldText = this.add.text(Math.round(38 * uiScale), Math.round(13 * uiScale), `${SaveSystem.getTotalGold()}`, {
       fontFamily: FONT_KR,
       fontSize: `${Math.max(14, Math.round(18 * uiScale))}px`,

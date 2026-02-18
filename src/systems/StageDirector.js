@@ -149,7 +149,6 @@ export default class StageDirector {
 
     if (this.stage >= 5 && this.stage % 5 === 0) {
       const b = scene.physics.world.bounds;
-      scene.queueEnemySpawn(b.width * 0.5, 70, EnemyType.MINIBOSS, 1.15);
       if (this.stage >= 10) {
         scene.queueEnemySpawn(b.width * 0.5 - 120, 100, EnemyType.ELITE, 1.0);
         scene.queueEnemySpawn(b.width * 0.5 + 120, 100, EnemyType.ELITE, 1.0);
