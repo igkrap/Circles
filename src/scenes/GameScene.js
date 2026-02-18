@@ -211,17 +211,7 @@ export default class GameScene extends Phaser.Scene {
     this.player.setDepth(4);
     this.player.setCircle(15);
     this.player.setCollideWorldBounds(true);
-    this.player.setVisible(false);
-    const playerVisualKey = this.textures.exists('img_player') ? 'img_player' : 'tex_player';
-    this.playerVisual = this.add.image(this.player.x, this.player.y, playerVisualKey).setDepth(4);
-    if (playerVisualKey === 'img_player') {
-      const tex = this.textures.get(playerVisualKey);
-      const src = tex?.getSourceImage?.();
-      const srcW = Math.max(1, Number(src?.width || 0));
-      const srcH = Math.max(1, Number(src?.height || 0));
-      const fit = 110 / Math.max(srcW, srcH);
-      this.playerVisual.setScale(fit);
-    }
+    this.playerVisual = null;
     this.playerShadow = this.add.image(this.player.x, this.player.y + 20, 'tex_shadow').setDepth(2).setAlpha(0.45);
     this.playerShadow.setDisplaySize(42, 18);
     this.playerAura = this.add.image(this.player.x, this.player.y, 'tex_aura_ring').setDepth(3).setAlpha(0.55);
