@@ -383,6 +383,12 @@ export default class GameScene extends Phaser.Scene {
       this.spawnWarnings.forEach((w) => w.gfx?.destroy());
       this.lineWarnings.forEach((w) => w.gfx?.destroy());
       this.bossLasers.forEach((b) => b.gfx?.destroy());
+      this.blizzards.forEach((b) => {
+        b.gfx?.destroy();
+        b.core?.destroy();
+        b.vfx?.destroy();
+      });
+      this.spinAuras.forEach((a) => a.spin?.destroy());
       this.aimCursorGfx?.destroy();
       this.pauseUi?.pauseBtn?.destroy();
       this.pauseUi?.pauseTxt?.destroy();
@@ -4013,6 +4019,18 @@ export default class GameScene extends Phaser.Scene {
     this.tweens.add({ targets: bladeTrail, alpha: 0, duration: 120, onComplete: () => bladeTrail.destroy() });
     bladeTrail.setBlendMode(Phaser.BlendModes.ADD);
 
+    if (this.textures.exists('spr_slash')) {
+      const slash = this.add.sprite(this.player.x, this.player.y, 'spr_slash', 0).setDepth(8);
+      const slashSize = Math.max(180, rArc * 2.2);
+      slash.setDisplaySize(slashSize, slashSize);
+      slash.setRotation(baseAng);
+      slash.setBlendMode(Phaser.BlendModes.ADD);
+      slash.setAlpha(0.96);
+      slash.once('animationcomplete', () => slash.destroy());
+      if (this.anims.exists('slash_cycle')) slash.play('slash_cycle');
+      else this.time.delayedCall(220, () => slash.destroy());
+    }
+
     this.emitBurst(this.player.x + aim.x * 28, this.player.y + aim.y * 28, { count: 10, tint: 0xffdca8, speedMin: 80, speedMax: 200, lifespan: 170 });
     this.emitBurst(this.player.x + aim.x * 58, this.player.y + aim.y * 58, { count: 14, tint: 0xfff0cf, speedMin: 120, speedMax: 260, lifespan: 140 });
     this.emitMagicSpark(this.player.x + aim.x * 44, this.player.y + aim.y * 44, 0xfff1d1, 0.85);
@@ -4117,17 +4135,15 @@ export default class GameScene extends Phaser.Scene {
     const duration = 2.2 + 0.35 * r;
     const tick = 0.24;
     const dmg = Math.max(1, Math.floor(this.baseDamage * (0.75 + 0.12 * r)));
-    const gfx = this.add.graphics().setDepth(7);
-    gfx.setBlendMode(Phaser.BlendModes.ADD);
-    this.tweens.add({
-      targets: gfx,
-      alpha: { from: 0.64, to: 0.32 },
-      duration: 260,
-      yoyo: true,
-      repeat: -1
-    });
+    const baseDepth = this.playerVisual?.depth ?? this.player?.depth ?? 4;
+    const spin = this.textures.exists('spr_spin')
+      ? this.add.sprite(this.player.x, this.player.y, 'spr_spin', 0).setDepth(baseDepth - 0.2)
+      : null;
+    const size = radius * 2.12;
+    spin?.setDisplaySize(size, size).setBlendMode(Phaser.BlendModes.ADD).setAlpha(0.88);
+    if (spin && this.anims.exists('spin_cycle')) spin.play('spin_cycle');
 
-    this.spinAuras.push({ t: duration, tick, acc: 0, radius, dmg, gfx, ang: 0 });
+    this.spinAuras.push({ t: duration, tick, acc: 0, radius, dmg, spin, ang: 0 });
     this.emitBurst(this.player.x, this.player.y, { count: 24, tint: 0xff9f7f, speedMin: 80, speedMax: 240, lifespan: 260 });
     this.emitParticleBurst('tex_smoke', this.player.x, this.player.y, {
       count: 7, lifespanMin: 240, lifespanMax: 520, speedMin: 14, speedMax: 65,
@@ -4227,6 +4243,15 @@ export default class GameScene extends Phaser.Scene {
     gfx.setBlendMode(Phaser.BlendModes.ADD);
     const core = this.add.circle(x, y, radius * 0.42, 0xd4fffb, 0.09).setDepth(7);
     core.setBlendMode(Phaser.BlendModes.ADD);
+    const vfx = this.textures.exists('spr_blizzard')
+      ? this.add.sprite(x, y, 'spr_blizzard', 0).setDepth(7.1)
+      : null;
+    if (vfx) {
+      vfx.setDisplaySize(Math.max(180, radius * 2.24), Math.max(180, radius * 2.24));
+      vfx.setBlendMode(Phaser.BlendModes.ADD);
+      vfx.setAlpha(0.78);
+      if (this.anims.exists('blizzard_cycle')) vfx.play('blizzard_cycle');
+    }
     this.tweens.add({ targets: core, alpha: { from: 0.14, to: 0.03 }, duration: 380, yoyo: true, repeat: -1 });
     this.emitBurst(x, y, { count: 18, tint: 0xbef6ff, speedMin: 60, speedMax: 170, lifespan: 300 });
     this.emitParticleBurst('tex_smoke', x, y, {
@@ -4235,7 +4260,7 @@ export default class GameScene extends Phaser.Scene {
     });
     this.emitSpokes(x, y, { count: 12, inner: 16, outer: radius * 0.8, color: 0xbffeff, duration: 210 });
     this.emitScreenFlash(0xbdf9ff, 0.05, 80);
-    this.blizzards.push({ x, y, t: duration, tick, acc: 0, radius, dmg, slowMul, gfx, core });
+    this.blizzards.push({ x, y, t: duration, tick, acc: 0, radius, dmg, slowMul, gfx, core, vfx });
     this.skillShake(0.0016, 70);
     this.playActionSfx('blizzard');
     return true;
@@ -4325,12 +4350,17 @@ export default class GameScene extends Phaser.Scene {
       if (b.t <= 0) {
         b.gfx.destroy();
         b.core?.destroy();
+        b.vfx?.destroy();
         this.blizzards.splice(i, 1);
         continue;
       }
       if (b.core) {
         b.core.setPosition(b.x, b.y);
         b.core.rotation += dtSec * 0.45;
+      }
+      if (b.vfx) {
+        b.vfx.setPosition(b.x, b.y);
+        b.vfx.rotation -= dtSec * 0.32;
       }
       if (b.acc >= b.tick) {
         b.acc = 0;
@@ -4361,37 +4391,12 @@ export default class GameScene extends Phaser.Scene {
       a.acc += dtSec;
       a.ang += dtSec * 7.6;
       const pulse = 0.82 + 0.18 * Math.sin(this.time.now * 0.018 + i);
-      a.gfx.clear();
-      a.gfx.lineStyle(10, 0xfff0d4, 0.34 * pulse);
-      a.gfx.strokeCircle(this.player.x, this.player.y, a.radius * 0.76);
-      a.gfx.lineStyle(4, 0xffb786, 0.78 * pulse);
-      a.gfx.strokeCircle(this.player.x, this.player.y, a.radius * 0.86);
-      a.gfx.lineStyle(8, 0xfff3dc, 0.95 * pulse);
-      for (let k = 0; k < 2; k += 1) {
-        const ang = a.ang + k * Math.PI;
-        const x1 = this.player.x + Math.cos(ang) * (a.radius * 0.22);
-        const y1 = this.player.y + Math.sin(ang) * (a.radius * 0.22);
-        const x2 = this.player.x + Math.cos(ang) * (a.radius * 0.96);
-        const y2 = this.player.y + Math.sin(ang) * (a.radius * 0.96);
-        a.gfx.beginPath();
-        a.gfx.moveTo(x1, y1);
-        a.gfx.lineTo(x2, y2);
-        a.gfx.strokePath();
-        const x3 = this.player.x + Math.cos(ang + 0.16) * (a.radius * 0.34);
-        const y3 = this.player.y + Math.sin(ang + 0.16) * (a.radius * 0.34);
-        const x4 = this.player.x + Math.cos(ang + 0.16) * (a.radius * 0.9);
-        const y4 = this.player.y + Math.sin(ang + 0.16) * (a.radius * 0.9);
-        a.gfx.lineStyle(4, 0xff9e5f, 0.66 * pulse);
-        a.gfx.beginPath();
-        a.gfx.moveTo(x3, y3);
-        a.gfx.lineTo(x4, y4);
-        a.gfx.strokePath();
-        a.gfx.lineStyle(8, 0xfff3dc, 0.95 * pulse);
-      }
-      a.gfx.lineStyle(3, 0xffffff, 0.72 * pulse);
-      a.gfx.strokeCircle(this.player.x, this.player.y, a.radius * 0.82);
+      const px = this.player.x;
+      const py = this.player.y;
+      a.spin?.setPosition(px, py).setAlpha(0.82 * pulse);
+      if (a.spin) a.spin.rotation += dtSec * 4.2;
       if (a.t <= 0) {
-        a.gfx.destroy();
+        a.spin?.destroy();
         this.spinAuras.splice(i, 1);
         continue;
       }

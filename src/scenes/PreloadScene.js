@@ -28,6 +28,9 @@ export default class PreloadScene extends Phaser.Scene {
     this.load.spritesheet('spr_enemy_normal', 'assets/img_enemy_normal.png', { frameWidth: 192, frameHeight: 192 });
     this.load.spritesheet('spr_enemy_tank', 'assets/img_enemy_tank.png', { frameWidth: 192, frameHeight: 192 });
     this.load.spritesheet('spr_enemy_elite', 'assets/img_enemy_elite.png', { frameWidth: 192, frameHeight: 192 });
+    this.load.spritesheet('spr_spin', 'assets/VFX_spin.png', { frameWidth: 512, frameHeight: 512 });
+    this.load.spritesheet('spr_slash', 'assets/VFX_slash.png', { frameWidth: 512, frameHeight: 512 });
+    this.load.spritesheet('spr_blizzard', 'assets/VFX_blizzard.png', { frameWidth: 512, frameHeight: 512 });
     this.load.spritesheet('spr_gold_coin', 'assets/MonedaD.png', { frameWidth: 16, frameHeight: 16 });
 
     const w = this.scale.width;
@@ -536,6 +539,30 @@ export default class PreloadScene extends Phaser.Scene {
         key: 'enemy_boss_cycle',
         frames: this.anims.generateFrameNumbers('spr_enemy_boss', { start: 0, end: Math.max(0, frameTotal - 1) }),
         frameRate: 18,
+        repeat: -1
+      });
+    }
+    if (this.textures.exists('spr_spin') && !this.anims.exists('spin_cycle')) {
+      this.anims.create({
+        key: 'spin_cycle',
+        frames: this.anims.generateFrameNumbers('spr_spin', { start: 0, end: 15 }),
+        frameRate: 30,
+        repeat: -1
+      });
+    }
+    if (this.textures.exists('spr_slash') && !this.anims.exists('slash_cycle')) {
+      this.anims.create({
+        key: 'slash_cycle',
+        frames: this.anims.generateFrameNumbers('spr_slash', { start: 0, end: 15 }),
+        frameRate: 56,
+        repeat: 0
+      });
+    }
+    if (this.textures.exists('spr_blizzard') && !this.anims.exists('blizzard_cycle')) {
+      this.anims.create({
+        key: 'blizzard_cycle',
+        frames: this.anims.generateFrameNumbers('spr_blizzard', { start: 0, end: 15 }),
+        frameRate: 24,
         repeat: -1
       });
     }
