@@ -218,6 +218,7 @@ export default class GameScene extends Phaser.Scene {
     this.totalGold = SaveSystem.getTotalGold();
     this.levelupActive = false;
     this.pauseActive = false;
+    this.enableSkillScreenFlash = false;
     this.settings = SettingsSystem.load();
     const ua = (typeof navigator !== 'undefined' ? navigator.userAgent : '') || '';
     this.isSafariTarget = /Safari/i.test(ua) && !/Chrome|Chromium|CriOS|Edg|OPR|Android/i.test(ua);
@@ -1828,6 +1829,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   emitScreenFlash(color = 0xbad8ff, alpha = 0.1, duration = 90) {
+    if (!this.enableSkillScreenFlash) return;
     const cam = this.cameras.main;
     const sw = this.scale.width;
     const sh = this.scale.height;
