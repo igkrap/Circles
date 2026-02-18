@@ -1,6 +1,34 @@
-﻿import Phaser from 'phaser';
+import Phaser from 'phaser';
 import SaveSystem from '../systems/SaveSystem.js';
 import SettingsSystem from '../systems/SettingsSystem.js';
+
+const FONT_DISPLAY = 'Rajdhani, "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif';
+const FONT_BODY = 'Pretendard, "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif';
+
+function getModeLabel(mode) {
+  if (mode === 'coop') return '\uD611\uB3D9 \uBAA8\uB4DC';
+  if (mode === 'defense') return '\uB514\uD39C\uC2A4 \uBAA8\uB4DC';
+  if (mode === 'pvp') return 'PVP \uBAA8\uB4DC';
+  return '\uC2A4\uD14C\uC774\uC9C0 \uBAA8\uB4DC';
+}
+
+function formatTime(sec) {
+  const safe = Math.max(0, Math.floor(Number(sec || 0)));
+  const mm = String(Math.floor(safe / 60)).padStart(2, '0');
+  const ss = String(safe % 60).padStart(2, '0');
+  return `${mm}:${ss}`;
+}
+
+function getResultTitle(reason) {
+  if (reason === 'stage_clear') return 'MISSION CLEAR';
+  return 'GAME OVER';
+}
+
+function getResultSubtitle(reason, stage) {
+  if (reason === 'core_destroyed') return '\uC911\uC559 \uCF54\uC5B4\uAC00 \uD30C\uAD34\uB418\uC5C8\uC2B5\uB2C8\uB2E4';
+  if (reason === 'stage_clear') return `\uC2A4\uD14C\uC774\uC9C0 ${stage}\uB97C \uD074\uB9AC\uC5B4\uD588\uC2B5\uB2C8\uB2E4`;
+  return '\uD50C\uB808\uC774\uC5B4\uAC00 \uC4F0\uB7EC\uC84C\uC2B5\uB2C8\uB2E4';
+}
 
 export default class GameOverScene extends Phaser.Scene {
   constructor() {
@@ -27,183 +55,215 @@ export default class GameOverScene extends Phaser.Scene {
     const settings = SettingsSystem.load();
     const bgm = this.sound.add('bgm_lobby', { loop: true, volume: settings.bgmVolume });
     if (settings.bgmEnabled) bgm.play();
+    this.events.once('shutdown', () => bgm.stop());
 
-    const root = this.add.container(0, 0);
-    const dim = this.add.rectangle(0, 0, w, h, 0x020814, 0.86).setOrigin(0);
-    const glowA = this.add.circle(w * 0.28, h * 0.2, Math.max(180, w * 0.18), 0x2a7cff, 0.1).setBlendMode(Phaser.BlendModes.ADD);
-    const glowB = this.add.circle(w * 0.75, h * 0.78, Math.max(220, w * 0.2), 0xff4f74, 0.08).setBlendMode(Phaser.BlendModes.ADD);
-    root.add([dim, glowA, glowB]);
+    this.add.rectangle(0, 0, w, h, 0x050d1a, 1).setOrigin(0);
 
-    const cardW = Math.min(700, Math.max(430, w - 54));
-    const cardH = Math.min(620, Math.max(470, h - 48));
-    const cardX = w * 0.5;
-    const cardY = h * 0.53;
-    const card = this.add.rectangle(cardX, cardY, cardW, cardH, 0x0f1930, 0.96);
-    card.setStrokeStyle(2, 0x3f5f99, 0.95);
-    root.add(card);
-
-    const topGlow = this.add.rectangle(cardX, cardY - cardH * 0.5 + 22, cardW - 28, 30, 0x7ea0ff, 0.08)
-      .setBlendMode(Phaser.BlendModes.ADD)
-      .setOrigin(0.5);
-    root.add(topGlow);
-
-    const modeLabel = this.mode === 'pvp'
-      ? 'PVP 모드'
-      : (this.mode === 'coop' ? '협동 모드' : (this.mode === 'defense' ? '디펜스 모드' : '스테이지 모드'));
-    const modeChip = this.add.rectangle(cardX, cardY - cardH * 0.5 + 44, 146, 30, 0x2a395d, 0.96);
-    modeChip.setStrokeStyle(1, 0x7ea0ff, 0.75);
-    const modeTx = this.add.text(cardX, modeChip.y, modeLabel, {
-      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
-      fontSize: '14px',
-      color: '#c8dcff'
-    }).setOrigin(0.5);
-    root.add([modeChip, modeTx]);
-
-    const titleY = modeChip.y + 54;
-    const title = this.add.text(cardX, titleY, '게임 오버', {
-      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
-      fontSize: w < 760 ? '48px' : '58px',
-      color: '#ff7480'
-    }).setOrigin(0.5);
-    root.add(title);
-
-    const reasonText = this.reason === 'core_destroyed'
-      ? '중앙 코어가 파괴되었습니다'
-      : (this.reason === 'stage_clear' ? `스테이지 ${Math.max(1, Math.floor(Number(this.finalStage || 1)))}을 클리어했습니다` : '플레이어가 쓰러졌습니다');
-    const subtitle = this.add.text(cardX, titleY + 42, reasonText, {
-      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
-      fontSize: '16px',
-      color: '#9cb3da'
-    }).setOrigin(0.5);
-    root.add(subtitle);
-
-    const divider = this.add.rectangle(cardX, subtitle.y + 28, Math.min(420, cardW - 130), 2, 0x355180, 0.85).setOrigin(0.5);
-    root.add(divider);
-
-    const compact = cardH < 540;
-    const mkMetric = (x, y, label, value, valueColor = '#eaf0ff') => {
-      const labelTx = this.add.text(x, y, label, {
-        fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
-        fontSize: compact ? '13px' : '14px',
-        color: '#9cb3da'
-      }).setOrigin(0.5, 1);
-      const valueTx = this.add.text(x, y + 8, `${value}`, {
-        fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
-        fontSize: compact ? '20px' : '22px',
-        color: valueColor
-      }).setOrigin(0.5, 0);
-      root.add([labelTx, valueTx]);
-      return [labelTx, valueTx];
-    };
-
-    const metricLabelY = divider.y + (compact ? 18 : 20);
-    const metricsLeft = cardX - (cardW * 0.33);
-    const metricGap = (cardW * 0.66) / 3;
-    const metricNodes = [];
-    metricNodes.push(...mkMetric(metricsLeft + metricGap * 0, metricLabelY, '스테이지', this.finalStage));
-    metricNodes.push(...mkMetric(metricsLeft + metricGap * 1, metricLabelY, '레벨', this.finalLevel));
-    metricNodes.push(...mkMetric(metricsLeft + metricGap * 2, metricLabelY, '처치', this.finalKills));
-    metricNodes.push(...mkMetric(metricsLeft + metricGap * 3, metricLabelY, '획득 골드', `+${this.runGold}`, '#ffd86f'));
-
-    const metricsBottom = metricLabelY + (compact ? 38 : 42);
-    const timeLineY = metricsBottom + (compact ? 16 : 18);
-    const timeLine = this.add.text(cardX, timeLineY, `생존 시간 ${this.finalTimeSec.toFixed(1)}초   총 골드 ${SaveSystem.getTotalGold()}`, {
-      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
-      fontSize: compact ? '15px' : '16px',
-      color: '#9cb3da'
-    }).setOrigin(0.5);
-    root.add(timeLine);
-
-    const scoreBoxH = compact ? 64 : 70;
-    const scoreGap = compact ? 24 : 28;
-    const scoreBoxTop = timeLineY + scoreGap;
-    const scoreBoxY = scoreBoxTop + (scoreBoxH * 0.5);
-    const scoreBox = this.add.rectangle(cardX, scoreBoxY, Math.min(460, cardW - 90), scoreBoxH, 0x15284b, 0.98);
-    scoreBox.setStrokeStyle(2, 0x6e90db, 0.85);
-    const scoreLabel = this.add.text(cardX, scoreBoxY - (compact ? 13 : 14), '총 점수', {
-      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
-      fontSize: compact ? '14px' : '15px',
-      color: '#9cb3da'
-    }).setOrigin(0.5);
-    const scoreValue = this.add.text(cardX, scoreBoxY + 8, `${this.finalTotalScore}`, {
-      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
-      fontSize: compact ? '34px' : (cardW >= 520 ? '36px' : '32px'),
-      color: '#8db1ff'
-    }).setOrigin(0.5);
-    root.add([scoreBox, scoreLabel, scoreValue]);
-
-    const mkBtn = (x, y, wBtn, hBtn, label, onClick, fill = 0x2a3552, hover = 0x3a4c72) => {
-      const bg = this.add.rectangle(x, y, wBtn, hBtn, fill, 0.98).setInteractive({ useHandCursor: true });
-      bg.setStrokeStyle(1, 0x7ea0ff, 0.86);
-      const tx = this.add.text(x, y, label, {
-        fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
-        fontSize: compact ? '17px' : '19px',
-        color: '#eaf0ff'
-      }).setOrigin(0.5);
-      root.add([bg, tx]);
-      bg.on('pointerover', () => bg.setFillStyle(hover, 0.98));
-      bg.on('pointerout', () => bg.setFillStyle(fill, 0.98));
-      bg.on('pointerdown', onClick);
-      return { bg, tx };
-    };
-
-    const cardBottom = cardY + cardH * 0.5;
-    const scoreBottom = scoreBox.y + (scoreBox.height * 0.5);
-    const actionLabelY = scoreBottom + (compact ? 18 : 20);
-    const actionLabel = this.add.text(cardX, actionLabelY, '다음 동작 선택', {
-      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
-      fontSize: compact ? '14px' : '15px',
-      color: '#8fa4cd'
-    }).setOrigin(0.5);
-    root.add(actionLabel);
-    this.tweens.add({ targets: actionLabel, alpha: 0.45, duration: 720, yoyo: true, repeat: -1 });
-
-    const retryY = actionLabelY + (compact ? 30 : 34);
-    const rowY = retryY + (compact ? 46 : 52);
-    const retryBtn = mkBtn(cardX, retryY, Math.min(360, cardW - 90), compact ? 38 : 40, '재도전', () => {
-      bgm.stop();
-      this.scene.start('Game', {
-        mode: this.mode,
-        token: this.pvp?.token,
-        serverBaseUrl: this.pvp?.serverBaseUrl,
-        user: this.pvp?.user,
-        partyKey: this.pvp?.partyKey
-      });
-    }, 0x35538b, 0x4668ad);
-    const lobbyBtn = mkBtn(cardX - Math.min(128, cardW * 0.22), rowY, Math.min(214, cardW * 0.36), compact ? 34 : 36, '로비', () => {
-      bgm.stop();
-      this.scene.start('Lobby');
-    });
-    const rankingBtn = mkBtn(cardX + Math.min(128, cardW * 0.22), rowY, Math.min(214, cardW * 0.36), compact ? 34 : 36, '랭킹', () => {
-      bgm.stop();
-      const rankingMode = this.mode === 'defense' ? 'survival' : this.mode;
-      this.scene.start('Ranking', { mode: rankingMode });
-    });
-
-    const layoutNodes = [...metricNodes, timeLine, scoreBox, scoreLabel, scoreValue, actionLabel, retryBtn.bg, retryBtn.tx, lobbyBtn.bg, lobbyBtn.tx, rankingBtn.bg, rankingBtn.tx];
-    const actionBottom = Math.max(retryBtn.bg.y + (retryBtn.bg.height * 0.5), lobbyBtn.bg.y + (lobbyBtn.bg.height * 0.5), rankingBtn.bg.y + (rankingBtn.bg.height * 0.5));
-    const maxActionBottom = cardBottom - 16;
-    if (actionBottom > maxActionBottom) {
-      const dy = actionBottom - maxActionBottom;
-      for (const n of layoutNodes) n.y -= dy;
+    const grid = this.add.graphics();
+    const step = 46;
+    for (let x = 0; x <= w; x += step) {
+      const major = x % (step * 4) === 0;
+      grid.lineStyle(1, major ? 0x2a527f : 0x193654, major ? 0.26 : 0.15);
+      grid.lineBetween(x, 0, x, h);
+    }
+    for (let y = 0; y <= h; y += step) {
+      const major = y % (step * 4) === 0;
+      grid.lineStyle(1, major ? 0x2a527f : 0x193654, major ? 0.26 : 0.15);
+      grid.lineBetween(0, y, w, y);
     }
 
-    dim.setAlpha(0);
-    glowA.setAlpha(0);
-    glowB.setAlpha(0);
-    card.setAlpha(0).setScale(0.96);
-    topGlow.setAlpha(0);
-    modeChip.setAlpha(0);
-    modeTx.setAlpha(0);
-    title.setAlpha(0).setY(title.y + 8);
-    subtitle.setAlpha(0).setY(subtitle.y + 8);
-    divider.setAlpha(0);
-    this.tweens.add({ targets: dim, alpha: 0.86, duration: 220, ease: 'Quad.Out' });
-    this.tweens.add({ targets: [glowA, glowB], alpha: { from: 0, to: 1 }, duration: 520, ease: 'Sine.Out' });
-    this.tweens.add({ targets: card, alpha: 1, scaleX: 1, scaleY: 1, duration: 260, ease: 'Back.Out' });
-    this.tweens.add({ targets: [topGlow, modeChip, modeTx], alpha: 1, duration: 220, delay: 90, ease: 'Quad.Out' });
-    this.tweens.add({ targets: [title, subtitle, divider], alpha: 1, y: '-=8', duration: 240, delay: 120, ease: 'Quad.Out' });
-    this.tweens.add({ targets: [scoreBox, scoreLabel, scoreValue], alpha: { from: 0, to: 1 }, y: '-=6', duration: 220, delay: 170, ease: 'Quad.Out' });
-    this.tweens.add({ targets: [actionLabel, retryBtn.bg, retryBtn.tx, lobbyBtn.bg, lobbyBtn.tx, rankingBtn.bg, rankingBtn.tx], alpha: { from: 0, to: 1 }, y: '-=6', duration: 220, delay: 220, ease: 'Quad.Out' });
+    const dim = this.add.rectangle(0, 0, w, h, 0x020712, 0.7).setOrigin(0);
+
+    const cx = w * 0.5;
+    const cy = h * 0.52;
+    const cardW = Phaser.Math.Clamp(w - 56, 430, 760);
+    const cardH = Phaser.Math.Clamp(h - 56, 390, 500);
+    const top = cy - cardH * 0.5;
+    const bottom = cy + cardH * 0.5;
+    const contentW = cardW - 56;
+
+    const cardShadow = this.add.rectangle(cx, cy + 5, cardW + 8, cardH + 8, 0x030812, 0.64);
+    const card = this.add.rectangle(cx, cy, cardW, cardH, 0x0f1b2f, 0.97);
+    card.setStrokeStyle(2, 0x4676a7, 0.96);
+    const inner = this.add.rectangle(cx, cy, cardW - 20, cardH - 20, 0x10233f, 0.22);
+    inner.setStrokeStyle(1, 0x4d80b2, 0.42);
+
+    const modeChip = this.add.rectangle(cx - contentW * 0.5 + 72, top + 34, 132, 26, 0x23496f, 0.94);
+    modeChip.setStrokeStyle(1, 0x7dbde8, 0.9);
+    const modeText = this.add.text(modeChip.x, modeChip.y, getModeLabel(this.mode), {
+      fontFamily: FONT_BODY,
+      fontSize: '13px',
+      color: '#e8f4ff'
+    }).setOrigin(0.5);
+
+    const title = getResultTitle(this.reason);
+    const titleColor = this.reason === 'stage_clear' ? '#a1f2c5' : '#ff9fae';
+    const titleNode = this.add.text(cx, top + 92, title, {
+      fontFamily: FONT_DISPLAY,
+      fontSize: w < 760 ? '46px' : '54px',
+      color: titleColor
+    }).setOrigin(0.5);
+
+    const subtitleNode = this.add.text(
+      cx,
+      top + 126,
+      getResultSubtitle(this.reason, Math.max(1, Math.floor(Number(this.finalStage || 1)))),
+      {
+        fontFamily: FONT_BODY,
+        fontSize: '16px',
+        color: '#a7bfdc'
+      }
+    ).setOrigin(0.5);
+
+    const statLabels = [
+      '\uC2A4\uD14C\uC774\uC9C0',
+      '\uB808\uBCA8',
+      '\uCC98\uCE58',
+      '\uD68D\uB4DD \uACE8\uB4DC'
+    ];
+    const statValues = [
+      `${Math.max(1, Math.floor(Number(this.finalStage || 1)))}`,
+      `${Math.max(1, Math.floor(Number(this.finalLevel || 1)))}`,
+      `${Math.max(0, Math.floor(Number(this.finalKills || 0)))}`,
+      `+${Math.max(0, Math.floor(Number(this.runGold || 0)))}`
+    ];
+    const statColors = ['#edf5ff', '#edf5ff', '#edf5ff', '#ffd987'];
+    const statY = top + Math.round(cardH * 0.43);
+    const statW = contentW;
+    const statH = 74;
+    const statBox = this.add.rectangle(cx, statY, statW, statH, 0x12253b, 0.9);
+    statBox.setStrokeStyle(1, 0x3d6288, 0.78);
+
+    const statNodes = [];
+    const colW = statW / 4;
+    for (let i = 0; i < 4; i += 1) {
+      const x = cx - statW * 0.5 + colW * (i + 0.5);
+      const lbl = this.add.text(x, statY - 19, statLabels[i], {
+        fontFamily: FONT_BODY,
+        fontSize: '13px',
+        color: '#8ea9c9'
+      }).setOrigin(0.5);
+      const val = this.add.text(x, statY + 16, statValues[i], {
+        fontFamily: FONT_DISPLAY,
+        fontSize: '38px',
+        color: statColors[i]
+      }).setOrigin(0.5);
+      statNodes.push(lbl, val);
+      if (i < 3) {
+        statNodes.push(this.add.rectangle(x + colW * 0.5, statY, 1, 46, 0x335777, 0.56));
+      }
+    }
+
+    const infoY = statY + statH * 0.5 + 16;
+    const infoNode = this.add.text(
+      cx,
+      infoY,
+      `TIME ${formatTime(this.finalTimeSec)}  \u00b7  GOLD ${SaveSystem.getTotalGold()}`,
+      {
+        fontFamily: FONT_DISPLAY,
+        fontSize: '14px',
+        color: '#9eb9d9'
+      }
+    ).setOrigin(0.5);
+
+    const secondaryY = bottom - 28;
+    const retryY = secondaryY - 40;
+    const scoreYRaw = infoY + Math.round((retryY - infoY) * 0.5);
+    const scoreY = Math.min(scoreYRaw, retryY - 28);
+
+    const scoreLabel = this.add.text(cx, scoreY - 14, 'TOTAL SCORE', {
+      fontFamily: FONT_DISPLAY,
+      fontSize: '13px',
+      color: '#8fb2d7'
+    }).setOrigin(0.5);
+    const scoreNode = this.add.text(cx, scoreY + 10, `${Math.max(0, Math.floor(Number(this.finalTotalScore || 0)))}`, {
+      fontFamily: FONT_DISPLAY,
+      fontSize: '42px',
+      color: '#f2f7ff'
+    }).setOrigin(0.5);
+
+    const makeButton = (x, y, bw, bh, label, onClick, style = 'normal') => {
+      const palettes = {
+        primary: { fill: 0x25557d, hover: 0x326c9e, stroke: 0x82d1ff, text: '#eff8ff' },
+        normal: { fill: 0x22364f, hover: 0x2f4a6b, stroke: 0x658cb4, text: '#e8f1ff' }
+      };
+      const color = palettes[style] || palettes.normal;
+      const btn = this.add.rectangle(x, y, bw, bh, color.fill, 0.96).setInteractive({ useHandCursor: true });
+      btn.setStrokeStyle(1, color.stroke, 0.9);
+      const tx = this.add.text(x, y, label, {
+        fontFamily: FONT_BODY,
+        fontSize: style === 'primary' ? '17px' : '16px',
+        color: color.text,
+        fontStyle: '700'
+      }).setOrigin(0.5);
+
+      btn.on('pointerover', () => {
+        btn.setFillStyle(color.hover, 0.98);
+        btn.setStrokeStyle(1, 0xaedfff, 1);
+      });
+      btn.on('pointerout', () => {
+        btn.setFillStyle(color.fill, 0.96);
+        btn.setStrokeStyle(1, color.stroke, 0.9);
+      });
+      btn.on('pointerdown', onClick);
+      return [btn, tx];
+    };
+
+    const mainBtnW = Math.min(360, contentW);
+    const sideGap = 12;
+    const sideBtnW = Math.floor((mainBtnW - sideGap) * 0.5);
+    const retryNodes = makeButton(
+      cx,
+      retryY,
+      mainBtnW,
+      36,
+      '\uC7AC\uB3C4\uC804',
+      () => {
+        bgm.stop();
+        this.scene.start('Game', {
+          mode: this.mode,
+          token: this.pvp?.token,
+          serverBaseUrl: this.pvp?.serverBaseUrl,
+          user: this.pvp?.user,
+          partyKey: this.pvp?.partyKey
+        });
+      },
+      'primary'
+    );
+    const lobbyNodes = makeButton(
+      cx - (sideBtnW + sideGap) * 0.5,
+      secondaryY,
+      sideBtnW,
+      32,
+      '\uB85C\uBE44',
+      () => {
+        bgm.stop();
+        this.scene.start('Lobby');
+      },
+      'normal'
+    );
+    const rankingNodes = makeButton(
+      cx + (sideBtnW + sideGap) * 0.5,
+      secondaryY,
+      sideBtnW,
+      32,
+      '\uB7AD\uD0B9',
+      () => {
+        bgm.stop();
+        const rankingMode = this.mode === 'defense' ? 'survival' : this.mode;
+        this.scene.start('Ranking', { mode: rankingMode });
+      },
+      'normal'
+    );
+
+    const introPrimary = [dim, cardShadow, card, inner];
+    const introSecondary = [
+      modeChip, modeText, titleNode, subtitleNode, statBox, ...statNodes,
+      infoNode, scoreLabel, scoreNode, ...retryNodes, ...lobbyNodes, ...rankingNodes
+    ];
+    introPrimary.forEach((node) => node.setAlpha(0));
+    introSecondary.forEach((node) => node.setAlpha(0));
+    this.tweens.add({ targets: introPrimary, alpha: { from: 0, to: 1 }, duration: 180, ease: 'Sine.Out' });
+    this.tweens.add({ targets: introSecondary, alpha: { from: 0, to: 1 }, duration: 220, delay: 80, ease: 'Sine.Out' });
   }
 }

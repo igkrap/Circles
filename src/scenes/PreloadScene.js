@@ -21,6 +21,7 @@ export default class PreloadScene extends Phaser.Scene {
     this.load.audio('sfx_clash', 'assets/SFX_CLASH.wav');
     this.load.audio('sfx_battle', 'assets/SFX_BATTLE.mp3');
     this.load.audio('sfx_thunder', 'assets/SFX_THUNDER.wav');
+    this.load.image('img_player', 'assets/img_player.png');
 
     const w = this.scale.width;
     const h = this.scale.height;

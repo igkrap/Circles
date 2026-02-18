@@ -211,6 +211,17 @@ export default class GameScene extends Phaser.Scene {
     this.player.setDepth(4);
     this.player.setCircle(15);
     this.player.setCollideWorldBounds(true);
+    this.player.setVisible(false);
+    const playerVisualKey = this.textures.exists('img_player') ? 'img_player' : 'tex_player';
+    this.playerVisual = this.add.image(this.player.x, this.player.y, playerVisualKey).setDepth(4);
+    if (playerVisualKey === 'img_player') {
+      const tex = this.textures.get(playerVisualKey);
+      const src = tex?.getSourceImage?.();
+      const srcW = Math.max(1, Number(src?.width || 0));
+      const srcH = Math.max(1, Number(src?.height || 0));
+      const fit = 110 / Math.max(srcW, srcH);
+      this.playerVisual.setScale(fit);
+    }
     this.playerShadow = this.add.image(this.player.x, this.player.y + 20, 'tex_shadow').setDepth(2).setAlpha(0.45);
     this.playerShadow.setDisplaySize(42, 18);
     this.playerAura = this.add.image(this.player.x, this.player.y, 'tex_aura_ring').setDepth(3).setAlpha(0.55);
@@ -353,6 +364,7 @@ export default class GameScene extends Phaser.Scene {
       this.mobileUi?.root?.destroy(true);
       this.bgLayer?.destroy();
       this.bgNebula?.destroy();
+      this.playerVisual?.destroy();
       this.playerShadow?.destroy();
       this.playerAura?.destroy();
       this.pvpStatusText?.destroy();
@@ -1138,6 +1150,7 @@ export default class GameScene extends Phaser.Scene {
     const dist = Math.hypot(dx, dy);
     const lerpT = Math.min(1, dtSec * 10);
     this.player.setAlpha(1);
+    this.playerVisual?.setAlpha(1).clearTint();
     if (dist > 360) {
       this.pvpOpponent.x = predX;
       this.pvpOpponent.y = predY;
@@ -2554,6 +2567,7 @@ export default class GameScene extends Phaser.Scene {
     const mv = coopSelfDown ? { x: 0, y: 0 } : this.inputSystem.getMoveVec();
     const moveSpeed = this.playerSpeed * this.relicMoveSpeedMul;
     this.player.body.setVelocity(mv.x * moveSpeed * this.combatPace, mv.y * moveSpeed * this.combatPace);
+    if (this.playerVisual) this.playerVisual.setPosition(this.player.x, this.player.y);
     if (this.playerShadow) this.playerShadow.setPosition(this.player.x, this.player.y + 20);
     if (this.playerAura) {
       this.playerAura.setPosition(this.player.x, this.player.y);
@@ -2643,6 +2657,7 @@ export default class GameScene extends Phaser.Scene {
 
     if (this.isPvpMode) {
       this.player.setAlpha(1).clearTint();
+      this.playerVisual?.setAlpha(1).clearTint();
       if (this.player.body) {
         this.player.body.enable = true;
         this.player.body.checkCollision.none = false;
