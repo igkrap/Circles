@@ -1829,13 +1829,15 @@ export default class GameScene extends Phaser.Scene {
 
   emitScreenFlash(color = 0xbad8ff, alpha = 0.1, duration = 90) {
     const cam = this.cameras.main;
+    const sw = this.scale.width;
+    const sh = this.scale.height;
     const finalAlpha = this.isSafariTarget ? alpha * 0.55 : alpha;
     const finalDuration = this.isSafariTarget ? Math.floor(duration * 0.78) : duration;
     const r = this.add.rectangle(
-      cam.worldView.centerX,
-      cam.worldView.centerY,
-      cam.width,
-      cam.height,
+      Math.floor(sw * 0.5),
+      Math.floor(sh * 0.5),
+      sw,
+      sh,
       color,
       finalAlpha
     ).setDepth(2000);
