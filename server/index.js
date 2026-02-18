@@ -21,7 +21,10 @@ const GOOGLE_AUDIENCES = Array.from(new Set([
   ...GOOGLE_CLIENT_IDS,
   ...(GOOGLE_CLIENT_ID ? [GOOGLE_CLIENT_ID] : [])
 ]));
-const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || '*';
+const CLIENT_ORIGIN_RAW = String(process.env.CLIENT_ORIGINS || process.env.CLIENT_ORIGIN || '*').trim();
+const CLIENT_ORIGIN_LIST = CLIENT_ORIGIN_RAW === '*'
+  ? ['*']
+  : CLIENT_ORIGIN_RAW.split(',').map((v) => v.trim()).filter(Boolean);
 const AUTH_RATE_LIMIT_WINDOW_MS = Math.max(10_000, Number(process.env.AUTH_RATE_LIMIT_WINDOW_MS || 60_000));
 const AUTH_RATE_LIMIT_MAX = Math.max(5, Number(process.env.AUTH_RATE_LIMIT_MAX || 40));
 const PVP_DB_PATH = process.env.PVP_DB_PATH || path.join(process.cwd(), 'server', 'pvp.sqlite');
@@ -138,6 +141,12 @@ const appDb = new Database(APP_DB_PATH);
 appDb.pragma('journal_mode = WAL');
 const authRateMap = new Map();
 const coopPartyStateMap = new Map();
+
+function isOriginAllowed(origin) {
+  if (CLIENT_ORIGIN_LIST.includes('*')) return true;
+  if (!origin) return true;
+  return CLIENT_ORIGIN_LIST.includes(String(origin).trim());
+}
 
 function isCoopInviterWaiting(partyKey, inviterUserId) {
   const key = String(partyKey || '').trim();
@@ -3222,7 +3231,16 @@ const gameServer = new Server({
     pingMaxRetries: 2
   }),
   express: (expressApp) => {
-    expressApp.use(cors({ origin: CLIENT_ORIGIN === '*' ? true : CLIENT_ORIGIN, credentials: false }));
+    expressApp.use(cors({
+      origin: (origin, callback) => {
+        if (isOriginAllowed(origin)) {
+          callback(null, true);
+          return;
+        }
+        callback(new Error(`cors_origin_blocked:${String(origin || '')}`));
+      },
+      credentials: false
+    }));
     expressApp.use(express.json({ limit: '1mb' }));
     expressApp.get('/health', (_req, res) => {
       res.json({ ok: true, ts: Date.now() });
