@@ -655,6 +655,7 @@ export default class GameScene extends Phaser.Scene {
       const fromSid = String(msg?.fromSid || '');
       if (toSid === this.pvpSelfSid && dmg > 0) {
         this.playerHp = Math.max(0, this.playerHp - dmg);
+        this.playActionSfx('enemy_hit');
         this.emitBurst(this.player.x, this.player.y, {
           count: 4,
           tint: 0xff9db3,
@@ -668,6 +669,7 @@ export default class GameScene extends Phaser.Scene {
         const hp = Number(msg?.hp);
         if (Number.isFinite(hp) && this.pvpOpponent) {
           this.pvpOpponent.hp = Math.max(0, hp);
+          if (dmg > 0) this.playActionSfx('enemy_hit');
           if (fromSid && fromSid === this.pvpSelfSid && dmg > 0) {
             this.applyLifesteal(dmg);
           }
@@ -4765,6 +4767,7 @@ export default class GameScene extends Phaser.Scene {
     const applied = Math.max(1, Math.floor(amount * this.relicDamageTakenMul));
     this.playerHp -= applied;
     this.playerInvulnSec = 0.35;
+    this.playActionSfx('enemy_hit');
     new FloatingText(this, this.player.x, this.player.y - 18, `-${applied}`, { fontSize: 17, color: '#ff6b6b' });
     if (this.playerHp <= 0) this.gameOver();
   }
