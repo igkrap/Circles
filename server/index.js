@@ -2080,6 +2080,15 @@ class BattleSurvivalRoom extends Room {
 
     const dmg = getServerAuthorizedDamage('basic', 'BASIC', bot.level, 'pvp', combat);
     if (dmg <= 0) return;
+    this.broadcast('pvp.fx', {
+      fromSid: sid,
+      type: 'fire',
+      key: 'BASIC',
+      x: Number(bot.x || 0),
+      y: Number(bot.y || 0),
+      ax: nx,
+      ay: ny
+    });
     target.hp = Math.max(0, target.hp - dmg);
     this.broadcast('pvp.damage', { fromSid: sid, toSid: targetSid, damage: dmg, hp: target.hp });
     if (target.hp <= 0 && this.state.phase !== 'ended') {
