@@ -55,7 +55,8 @@ const HUD_COLOR_HP = 0xff7361;
 const HUD_COLOR_HP_SAFE = 0x55d98d;
 const HUD_COLOR_XP = 0x47d3ff;
 const HUD_COLOR_GOLD = '#ffd166';
-const SKILL_SLOT_ICON_SCALE = 0.45;
+const SKILL_SLOT_ICON_SCALE = 0.38;
+const MOBILE_SKILL_ICON_SCALE = 0.28;
 const ENTITY_SIZE_SCALE = 1.5;
 const ENEMY_HITBOX_SCALE_REGULAR = 0.75;
 const PLAYER_BODY_RADIUS = 15 * ENTITY_SIZE_SCALE;
@@ -1725,6 +1726,7 @@ export default class GameScene extends Phaser.Scene {
       y: h - bottomInset
     };
     const fanRadius = (padR + br + 220) * 0.7;
+    const mobileIconSize = Math.max(12, Math.floor((br * 2) * MOBILE_SKILL_ICON_SCALE));
     const userAngles = [270, 300, 330, 360];
     const minX = br + 10;
     const maxX = w - br - 10;
@@ -1743,7 +1745,7 @@ export default class GameScene extends Phaser.Scene {
       const yy = cy - br;
       b.btn.setPosition(cx, cy).setRadius(br);
       b.num.setPosition(x + 6, yy + 4);
-      b.icon.setPosition(cx, cy + 1).setDisplaySize(18, 18);
+      b.icon.setPosition(cx, cy + 1).setDisplaySize(mobileIconSize, mobileIconSize);
       b.cd.setPosition(cx, cy);
       b.cdOverlay.clear();
       b.rect = { x, y: yy, w: bd, h: bd };
@@ -2348,7 +2350,8 @@ export default class GameScene extends Phaser.Scene {
       slot.bg.setPosition(x + box * 0.5, y + box * 0.5).setSize(box, box);
       slot.border.setPosition(x + box * 0.5, y + box * 0.5).setSize(box, box);
       slot.num.setPosition(x + Math.round(4 * hudScale), y + Math.round(2 * hudScale)).setFontSize(Math.max(10, Math.floor(box * 0.18)));
-      slot.iconSprite.setPosition(x + box * 0.5, y + box * 0.5 + 1).setDisplaySize(box * SKILL_SLOT_ICON_SCALE, box * SKILL_SLOT_ICON_SCALE).setAlpha(0.98);
+      const slotIconSize = Math.max(10, Math.floor(box * SKILL_SLOT_ICON_SCALE));
+      slot.iconSprite.setPosition(x + box * 0.5, y + box * 0.5 + 1).setDisplaySize(slotIconSize, slotIconSize).setAlpha(0.98);
       slot.icon.setPosition(x + box * 0.5, y + box * 0.5 + 2).setFontSize(Math.max(10, Math.floor(box * 0.21)));
       slot.rank.setPosition(x + box - Math.round(5 * hudScale), y + box - Math.round(5 * hudScale)).setFontSize(Math.max(10, Math.floor(box * 0.18)));
       slot.cdText.setPosition(x + box * 0.5, y + box * 0.5).setFontSize(Math.max(10, Math.floor(box * 0.19)));
@@ -3065,9 +3068,10 @@ export default class GameScene extends Phaser.Scene {
         slotUi.bg.setFillStyle(unlocked ? 0x12253d : 0x0d192c, unlocked ? 0.9 : 0.74);
         slotUi.num.setColor(unlocked ? '#a7cbe8' : '#6e89a5');
         if (iconKey) {
+          const slotIconSize = Math.max(10, Math.floor(Math.min(slotUi.rect.w, slotUi.rect.h) * SKILL_SLOT_ICON_SCALE));
           slotUi.iconSprite
             .setTexture(iconKey)
-            .setDisplaySize(slotUi.rect.w * SKILL_SLOT_ICON_SCALE, slotUi.rect.w * SKILL_SLOT_ICON_SCALE)
+            .setDisplaySize(slotIconSize, slotIconSize)
             .setVisible(true);
           slotUi.icon.setText('');
         } else {
