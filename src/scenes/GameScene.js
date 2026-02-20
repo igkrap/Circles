@@ -1475,7 +1475,18 @@ export default class GameScene extends Phaser.Scene {
       shot.vx = nx * speed;
       shot.vy = ny * speed;
       const distToMe = Math.hypot(this.player.x - ox, this.player.y - oy);
-      shot.life = Phaser.Math.Clamp(distToMe / Math.max(1, speed) + 0.12, 0.18, 1.8);
+      const travelMsRaw = Number(msg?.travelMs);
+      const travelSec = Number.isFinite(travelMsRaw) && travelMsRaw > 0
+        ? travelMsRaw / 1000
+        : distToMe / Math.max(1, speed);
+      const latencySec = Phaser.Math.Clamp((Number(this.pvpPingMs || 0) * 0.5) / 1000, 0, 0.24);
+      const advanceSec = Phaser.Math.Clamp(latencySec, 0, Math.max(0, travelSec - 0.02));
+      if (advanceSec > 0) {
+        shot.x += shot.vx * advanceSec;
+        shot.y += shot.vy * advanceSec;
+        shot.setPosition(shot.x, shot.y);
+      }
+      shot.life = Phaser.Math.Clamp(travelSec + 0.04 - advanceSec, 0.08, 1.6);
       this.pvpRemoteShots.push(shot);
       this.emitBurst(ox, oy, { count: 5, tint: 0xcfe9ff, speedMin: 40, speedMax: 120, scaleStart: 0.7, lifespan: 120 });
       return;

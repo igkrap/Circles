@@ -59,6 +59,8 @@ const SHOT_DAMAGE_BASE = 10;
 const SHOT_COOLDOWN_MS_BASE = 370;
 const SHOT_RANGE_BASE = 860;
 const SHOT_ARC_DOT = 0.84;
+const PVP_FIRE_SPEED = 660;
+const PVP_BULLET_HIT_RADIUS = 24 * ENTITY_SIZE_SCALE;
 const MAX_HP_BASE = 50;
 const MOVE_SPEED_BASE = 270;
 const MAX_NET_MOVE_SPEED = 620;
@@ -1573,6 +1575,8 @@ class BattleSurvivalRoom extends Room {
     this.coopReviveHolds = new Map();
     this.coopReviveStatusSig = new Map();
     this.debugBotSid = '';
+    this.debugBotProjectiles = [];
+    this.debugBotShotSeq = 1;
     this.startedAt = Date.now();
     this.roundStartAt = 0;
     this.setSimulationInterval((dt) => this.updatePve(dt));
@@ -1944,6 +1948,11 @@ class BattleSurvivalRoom extends Room {
     if (!this.debugBotSid) return;
     const sid = this.debugBotSid;
     this.debugBotSid = '';
+    if (Array.isArray(this.debugBotProjectiles) && this.debugBotProjectiles.length > 0) {
+      this.debugBotProjectiles = this.debugBotProjectiles.filter((shot) => (
+        String(shot?.sourceSid || '') !== sid && String(shot?.targetSid || '') !== sid
+      ));
+    }
     this.state.players.delete(sid);
     this.sessionAuth.delete(sid);
     this.playerCombat.delete(sid);
@@ -2080,19 +2089,122 @@ class BattleSurvivalRoom extends Room {
 
     const dmg = getServerAuthorizedDamage('basic', 'BASIC', bot.level, 'pvp', combat);
     if (dmg <= 0) return;
-    this.broadcast('pvp.fx', {
-      fromSid: sid,
-      type: 'fire',
-      key: 'BASIC',
+    const maxRange = Math.min(980, Number(p.range || 980));
+    this.spawnDebugBotProjectile({
+      sourceSid: sid,
+      targetSid,
       x: Number(bot.x || 0),
       y: Number(bot.y || 0),
-      ax: nx,
-      ay: ny
+      nx,
+      ny,
+      damage: dmg,
+      distToTarget: dist,
+      maxRange
     });
-    target.hp = Math.max(0, target.hp - dmg);
-    this.broadcast('pvp.damage', { fromSid: sid, toSid: targetSid, damage: dmg, hp: target.hp });
-    if (target.hp <= 0 && this.state.phase !== 'ended') {
-      this.finalizeMatch(sid, 'hp_zero');
+  }
+
+  spawnDebugBotProjectile({
+    sourceSid = '',
+    targetSid = '',
+    x = 0,
+    y = 0,
+    nx = 1,
+    ny = 0,
+    damage = 0,
+    distToTarget = 0,
+    maxRange = SHOT_RANGE_BASE
+  } = {}) {
+    if (!this.debugSolo || this.isCoopMode || this.state.phase !== 'running') return;
+    const sourceId = String(sourceSid || '');
+    const targetId = String(targetSid || '');
+    if (!sourceId || !targetId) return;
+    const safeDamage = Math.max(1, Math.floor(Number(damage || 0)));
+    if (safeDamage <= 0) return;
+
+    const dirLen = Math.hypot(Number(nx || 0), Number(ny || 0)) || 1;
+    const dx = Number(nx || 0) / dirLen;
+    const dy = Number(ny || 0) / dirLen;
+    const range = Math.max(140, Math.min(1200, Number(maxRange || SHOT_RANGE_BASE)));
+    const lifeSec = range / Math.max(1, PVP_FIRE_SPEED);
+    const travelMs = Math.max(30, Math.min(420, Math.round((Math.max(1, Number(distToTarget || 0)) / Math.max(1, PVP_FIRE_SPEED)) * 1000)));
+    const shotId = `dbg_${Date.now().toString(36)}_${(this.debugBotShotSeq++).toString(36)}`;
+
+    this.debugBotProjectiles.push({
+      id: shotId,
+      sourceSid: sourceId,
+      targetSid: targetId,
+      x: Number(x || 0),
+      y: Number(y || 0),
+      vx: dx * PVP_FIRE_SPEED,
+      vy: dy * PVP_FIRE_SPEED,
+      lifeSec,
+      damage: safeDamage
+    });
+
+    this.broadcast('pvp.fx', {
+      fromSid: sourceId,
+      type: 'fire',
+      key: 'BASIC',
+      x: Number(x || 0),
+      y: Number(y || 0),
+      ax: dx,
+      ay: dy,
+      travelMs
+    });
+  }
+
+  updateDebugBotProjectiles(dtSec) {
+    if (!this.debugSolo || this.isCoopMode || this.state.phase !== 'running') return;
+    if (!Array.isArray(this.debugBotProjectiles) || this.debugBotProjectiles.length === 0) return;
+
+    const hitRadiusSq = PVP_BULLET_HIT_RADIUS * PVP_BULLET_HIT_RADIUS;
+    for (let i = this.debugBotProjectiles.length - 1; i >= 0; i -= 1) {
+      const shot = this.debugBotProjectiles[i];
+      if (!shot) {
+        this.debugBotProjectiles.splice(i, 1);
+        continue;
+      }
+
+      const source = this.state.players.get(String(shot.sourceSid || ''));
+      if (!source || source.hp <= 0) {
+        this.debugBotProjectiles.splice(i, 1);
+        continue;
+      }
+
+      const prevX = Number(shot.x || 0);
+      const prevY = Number(shot.y || 0);
+      shot.x = prevX + Number(shot.vx || 0) * dtSec;
+      shot.y = prevY + Number(shot.vy || 0) * dtSec;
+      shot.lifeSec = Number(shot.lifeSec || 0) - dtSec;
+
+      const targetSid = String(shot.targetSid || '');
+      const target = this.state.players.get(targetSid);
+      if (target && target.hp > 0) {
+        const d2 = this.pointSegDistSq(Number(target.x || 0), Number(target.y || 0), prevX, prevY, Number(shot.x || 0), Number(shot.y || 0));
+        if (d2 <= hitRadiusSq) {
+          const applied = Math.max(1, Math.floor(Number(shot.damage || 0)));
+          target.hp = Math.max(0, target.hp - applied);
+          this.broadcast('pvp.damage', {
+            fromSid: String(shot.sourceSid || ''),
+            toSid: targetSid,
+            damage: applied,
+            hp: target.hp
+          });
+          this.debugBotProjectiles.splice(i, 1);
+          if (target.hp <= 0 && this.state.phase !== 'ended') {
+            this.finalizeMatch(String(shot.sourceSid || ''), 'hp_zero');
+          }
+          continue;
+        }
+      }
+
+      const out = shot.x < (ARENA_MIN_X - 80)
+        || shot.x > (ARENA_MAX_X + 80)
+        || shot.y < (ARENA_MIN_Y - 80)
+        || shot.y > (ARENA_MAX_Y + 80);
+      if (shot.lifeSec <= 0 || out) {
+        this.debugBotProjectiles.splice(i, 1);
+      }
     }
   }
 
@@ -2992,6 +3104,7 @@ class BattleSurvivalRoom extends Room {
     this.state.elapsedSec = elapsedSec;
     this.updateDebugBot(now, dtSec);
     this.updatePlayerMovement(dtSec);
+    this.updateDebugBotProjectiles(dtSec);
     if (this.isCoopMode) {
       this.updateCoopRevives(now);
       this.pushCoopReviveStatus();
