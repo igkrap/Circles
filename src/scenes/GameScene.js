@@ -61,13 +61,20 @@ const ENTITY_SIZE_SCALE = 1.5;
 const ENEMY_HITBOX_SCALE_REGULAR = 0.75;
 const PLAYER_BODY_RADIUS = 15 * ENTITY_SIZE_SCALE;
 const PLAYER_VISUAL_SIZE = 38 * ENTITY_SIZE_SCALE;
+const ENEMY_VISUAL_SIZE_PER_BODY_RADIUS = 2.4;
+const REGULAR_ENEMY_VISUAL_TO_PLAYER_SCALE = 1.1;
+const REGULAR_ENEMY_HITBOX_TIGHTEN = 0.30;
+const REGULAR_ENEMY_BASE_BODY_RADIUS = 13 * ENTITY_SIZE_SCALE * ENEMY_HITBOX_SCALE_REGULAR;
+const REGULAR_ENEMY_RADIUS_SCALE = (PLAYER_VISUAL_SIZE * REGULAR_ENEMY_VISUAL_TO_PLAYER_SCALE)
+  / (REGULAR_ENEMY_BASE_BODY_RADIUS * ENEMY_VISUAL_SIZE_PER_BODY_RADIUS);
+const REGULAR_ENEMY_HITBOX_RADIUS_SCALE = REGULAR_ENEMY_RADIUS_SCALE * REGULAR_ENEMY_HITBOX_TIGHTEN;
 const PLAYER_SHADOW_OFFSET_Y = 20 * ENTITY_SIZE_SCALE;
 const PLAYER_SHADOW_WIDTH = 42 * ENTITY_SIZE_SCALE;
 const PLAYER_SHADOW_HEIGHT = 18 * ENTITY_SIZE_SCALE;
 const PVP_OPPONENT_HIT_RADIUS = 24 * ENTITY_SIZE_SCALE;
 const PVP_OPPONENT_LABEL_OFFSET_Y = 30 * ENTITY_SIZE_SCALE;
-const ENEMY_FALLBACK_HALF_WIDTH = 12 * ENTITY_SIZE_SCALE * ENEMY_HITBOX_SCALE_REGULAR;
-const ENEMY_SHADOW_FALLBACK_RADIUS = 14 * ENTITY_SIZE_SCALE;
+const ENEMY_FALLBACK_HALF_WIDTH = REGULAR_ENEMY_BASE_BODY_RADIUS * REGULAR_ENEMY_HITBOX_RADIUS_SCALE;
+const ENEMY_SHADOW_FALLBACK_RADIUS = ENEMY_FALLBACK_HALF_WIDTH;
 const ENEMY_SHADOW_OFFSET_Y = 7 * ENTITY_SIZE_SCALE;
 const FIRE_BOLT_OPPONENT_HIT_RADIUS = 22 * ENTITY_SIZE_SCALE;
 const PROJECTILE_HIT_PAD_ENEMY = 8 * ENTITY_SIZE_SCALE;
@@ -81,7 +88,17 @@ function getEnemyBodyRadiusByType(type) {
     : (type === EnemyType.MINIBOSS ? 22 : (type === EnemyType.TANK ? 17 : 13));
   const scaled = baseRadius * ENTITY_SIZE_SCALE;
   if (type === EnemyType.BOSS || type === EnemyType.MINIBOSS) return scaled;
-  return scaled * ENEMY_HITBOX_SCALE_REGULAR;
+  return scaled * ENEMY_HITBOX_SCALE_REGULAR * REGULAR_ENEMY_HITBOX_RADIUS_SCALE;
+}
+
+function setCenteredCircleBody(gameObject, radius) {
+  const srcW = Number(gameObject?.width);
+  const srcH = Number(gameObject?.height);
+  const safeSrcW = Number.isFinite(srcW) && srcW > 0 ? srcW : radius * 2;
+  const safeSrcH = Number.isFinite(srcH) && srcH > 0 ? srcH : radius * 2;
+  const offsetX = (safeSrcW - radius * 2) * 0.5;
+  const offsetY = (safeSrcH - radius * 2) * 0.5;
+  gameObject.setCircle(radius, offsetX, offsetY);
 }
 
 function getMmrTierLabel(mmr) {
@@ -104,7 +121,7 @@ class GoldPickup extends Phaser.Physics.Arcade.Sprite {
 
     this.setDepth(5);
     this.setScale(FIELD_COIN_SCALE);
-    this.setCircle(FIELD_COIN_PICKUP_RADIUS);
+    setCenteredCircleBody(this, FIELD_COIN_PICKUP_RADIUS);
     this.body.setAllowGravity(false);
     if (hasSheet && scene.anims.exists('gold_spin')) {
       this.play('gold_spin');
@@ -141,8 +158,11 @@ class Enemy extends Phaser.Physics.Arcade.Sprite {
     this.body.setCollideWorldBounds(true);
 
     const r = getEnemyBodyRadiusByType(type);
-    this.setCircle(r);
-    const baseSize = r * 2.4;
+    setCenteredCircleBody(this, r);
+    const visualR = (type === EnemyType.BOSS || type === EnemyType.MINIBOSS)
+      ? r
+      : (r / REGULAR_ENEMY_HITBOX_TIGHTEN);
+    const baseSize = visualR * ENEMY_VISUAL_SIZE_PER_BODY_RADIUS;
     this.setDisplaySize(baseSize, baseSize);
     if (type === EnemyType.MINIBOSS) {
       this.setScale(1.18);
@@ -282,7 +302,7 @@ export default class GameScene extends Phaser.Scene {
 
     this.player = this.physics.add.image(worldW / 2, worldH / 2, 'tex_player');
     this.player.setDepth(4);
-    this.player.setCircle(PLAYER_BODY_RADIUS);
+    setCenteredCircleBody(this.player, PLAYER_BODY_RADIUS);
     this.player.setDisplaySize(PLAYER_VISUAL_SIZE, PLAYER_VISUAL_SIZE);
     this.player.setCollideWorldBounds(true);
     this.playerVisual = null;
@@ -494,7 +514,7 @@ export default class GameScene extends Phaser.Scene {
       .setVisible(false)
       .setImmovable(true);
     this.defenseCoreBody.body.setAllowGravity(false);
-    this.defenseCoreBody.setCircle(34);
+    setCenteredCircleBody(this.defenseCoreBody, 34);
 
     this.defenseCore = { root, glow, aura, poly, core, x, y };
     this.defenseCoreHpMax = 420;
@@ -527,7 +547,7 @@ export default class GameScene extends Phaser.Scene {
     const y = this.player.y;
     const body = this.physics.add.image(x, y, 'tex_player');
     body.setDepth(4);
-    body.setCircle(PLAYER_BODY_RADIUS);
+    setCenteredCircleBody(body, PLAYER_BODY_RADIUS);
     body.setDisplaySize(PLAYER_VISUAL_SIZE, PLAYER_VISUAL_SIZE);
     body.setTint(this.isCoopMode ? 0x8fb4ff : 0xff8fb4);
     body.setCollideWorldBounds(true);
