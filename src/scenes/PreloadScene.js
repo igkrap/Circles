@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { RELIC_ICON_FILE_BY_ID } from '../data/relics.js';
 
 export default class PreloadScene extends Phaser.Scene {
   constructor() {
@@ -32,6 +33,9 @@ export default class PreloadScene extends Phaser.Scene {
     this.load.spritesheet('spr_slash', 'assets/VFX_slash.png', { frameWidth: 512, frameHeight: 512 });
     this.load.spritesheet('spr_blizzard', 'assets/VFX_blizzard.png', { frameWidth: 512, frameHeight: 512 });
     this.load.spritesheet('spr_gold_coin', 'assets/MonedaD.png', { frameWidth: 16, frameHeight: 16 });
+    Object.entries(RELIC_ICON_FILE_BY_ID).forEach(([relicId, file]) => {
+      this.load.image(`ico_relic_${relicId}`, `assets/${file}`);
+    });
 
     const w = this.scale.width;
     const h = this.scale.height;
@@ -871,6 +875,12 @@ export default class PreloadScene extends Phaser.Scene {
       g.strokePath();
     });
 
+    const debugLaunch = this.registry.get('debugLaunch');
+    if (debugLaunch && typeof debugLaunch === 'object') {
+      this.registry.remove('debugLaunch');
+      this.scene.start('Game', debugLaunch);
+      return;
+    }
     this.scene.start('Lobby');
   }
 }

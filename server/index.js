@@ -898,6 +898,15 @@ function clamp(v, min, max) {
   return Math.max(min, Math.min(max, v));
 }
 
+function parseBoolParam(rawValue, fallback = false) {
+  if (rawValue == null) return fallback;
+  const v = String(rawValue).trim().toLowerCase();
+  if (!v) return fallback;
+  if (['1', 'true', 't', 'yes', 'y', 'on'].includes(v)) return true;
+  if (['0', 'false', 'f', 'no', 'n', 'off'].includes(v)) return false;
+  return fallback;
+}
+
 function randInt(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
@@ -1486,6 +1495,12 @@ class BattleSurvivalRoom extends Room {
     this.mode = String(options?.mode || 'pvp').toLowerCase() === 'coop' ? 'coop' : 'pvp';
     this.isCoopMode = this.mode === 'coop';
     this.partyKey = this.isCoopMode ? String(options?.partyKey || '').trim() : '';
+    const debugEnabled = parseBoolParam(options?.debug, false);
+    const debugStageRaw = Math.floor(Number(options?.debugStage || 0));
+    this.debugCoopStage = (this.isCoopMode && debugEnabled && Number.isFinite(debugStageRaw))
+      ? clamp(debugStageRaw, 0, COOP_FINAL_STAGE)
+      : 0;
+    this.debugCoopForceDash = this.isCoopMode && debugEnabled && parseBoolParam(options?.debugDash, false);
     this.maxClients = 2;
     this.setState(new BattleState());
     this.sessionAuth = new Map();
@@ -2280,7 +2295,8 @@ class BattleSurvivalRoom extends Room {
       dirY: 0,
       dashUntil: 0,
       comboLeft: 0,
-      summonCount: 0
+      summonCount: 0,
+      debugForceDashOnce: !!this.debugCoopForceDash
     };
     this.broadcastBossAttack({
       kind: 'spawn',
@@ -2478,6 +2494,23 @@ class BattleSurvivalRoom extends Room {
     if (ai.phase === 'idle') {
       if (now >= Number(ai.cdUntil || 0)) {
         setAim();
+        if (ai.debugForceDashOnce) {
+          ai.debugForceDashOnce = false;
+          ai.phase = 'dash_warn';
+          ai.phaseUntil = now + 220;
+          ai.comboLeft = 1;
+          const lines = fanLines(1, 0);
+          this.broadcastBossAttack({
+            kind: 'dash_warn',
+            sourceId: String(enemy.id || ''),
+            durationMs: 220,
+            width: 12,
+            line: lines[0]
+          });
+          enemy.vx = 0;
+          enemy.vy = 0;
+          return false;
+        }
         const roll = Math.random();
         if (roll < 0.3) {
           ai.phase = 'dash_warn';
@@ -2858,7 +2891,17 @@ class BattleSurvivalRoom extends Room {
     };
   }
 
-  onJoin(client, _options, auth) {
+  onJoin(client, options, auth) {
+    if (this.isCoopMode && options && typeof options === 'object') {
+      const debugEnabled = parseBoolParam(options?.debug, false);
+      if (debugEnabled) {
+        const stageRaw = Math.floor(Number(options?.debugStage || 0));
+        if (Number.isFinite(stageRaw)) {
+          this.debugCoopStage = clamp(stageRaw, 0, COOP_FINAL_STAGE);
+        }
+        this.debugCoopForceDash = parseBoolParam(options?.debugDash, this.debugCoopForceDash);
+      }
+    }
     const safeAuth = (auth && typeof auth === 'object') ? auth : {};
     const userId = String(safeAuth.userId || '');
     const name = String(safeAuth.name || 'Player');
@@ -2958,9 +3001,12 @@ class BattleSurvivalRoom extends Room {
       this.pveSyncAccMs = 0;
       this.pveSeq = 1;
       this.pveBossAttacks = [];
-      this.coopStage = 1;
+      const startStage = (this.isCoopMode && this.debugCoopStage > 0)
+        ? this.debugCoopStage
+        : 1;
+      this.coopStage = startStage;
       this.coopStageKills = 0;
-      this.coopStageKillGoal = this.getCoopStageKillGoal(1);
+      this.coopStageKillGoal = this.getCoopStageKillGoal(this.coopStage);
       this.pveEnemies.clear();
       this.state.enemies.clear();
       this.broadcast('match.start', {

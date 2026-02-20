@@ -174,6 +174,17 @@ export default class GameScene extends Phaser.Scene {
         this.pvpUser = session.user || this.pvpUser;
       }
     }
+    const debugRaw = data?.debug && typeof data.debug === 'object' ? data.debug : null;
+    const debugStage = Math.floor(Number(debugRaw?.stage || 0));
+    this.debugRun = {
+      enabled: !!debugRaw?.enabled,
+      stage: Number.isFinite(debugStage) ? Phaser.Math.Clamp(debugStage, 0, STAGE_MODE_FINAL_STAGE) : 0,
+      forceBoss: !!debugRaw?.forceBoss,
+      forceDash: !!debugRaw?.forceDash
+    };
+    if (this.debugRun.enabled && this.debugRun.forceBoss && this.debugRun.stage <= 0) {
+      this.debugRun.stage = 5;
+    }
   }
 
   create() {
@@ -340,6 +351,7 @@ export default class GameScene extends Phaser.Scene {
     this.createVfx();
 
     this.stageDirector = new StageDirector();
+    this.applyDebugRouteSettings();
     this.fireAcc = 0;
     this.elapsedMs = 0;
 
@@ -382,7 +394,7 @@ export default class GameScene extends Phaser.Scene {
       this.levelUpOverlay.destroy();
       this.spawnWarnings.forEach((w) => w.gfx?.destroy());
       this.lineWarnings.forEach((w) => w.gfx?.destroy());
-      this.bossLasers.forEach((b) => b.gfx?.destroy());
+      this.bossLasers.forEach((b) => this.destroyBossLaserFx(b));
       this.blizzards.forEach((b) => {
         b.gfx?.destroy();
         b.core?.destroy();
@@ -542,6 +554,11 @@ export default class GameScene extends Phaser.Scene {
     const joinOptions = this.isCoopMode && this.partyKey
       ? { partyKey: this.partyKey }
       : {};
+    if (this.debugRun?.enabled) {
+      joinOptions.debug = 1;
+      if (this.debugRun.stage > 0) joinOptions.debugStage = this.debugRun.stage;
+      if (this.debugRun.forceDash) joinOptions.debugDash = 1;
+    }
     this.pvpRoom = await this.pvpClient.joinOrCreate(this.isCoopMode ? 'battle_coop' : 'battle_survival', joinOptions);
     this.pvpSelfSid = this.pvpRoom.sessionId;
     this.pvpStatusText?.setText(this.isCoopMode ? '협동 대기 중...' : 'PVP 대기 중...');
@@ -710,7 +727,8 @@ export default class GameScene extends Phaser.Scene {
     this.pvpRoom.onMessage('pve.sync', (msg) => {
       const rows = Array.isArray(msg?.enemies) ? msg.enemies : [];
       const sentAt = Number(msg?.sentAt);
-      const lagSec = Number.isFinite(sentAt) ? Phaser.Math.Clamp((Date.now() - sentAt) / 1000, 0, 0.25) : 0;
+      const nowMs = Date.now();
+      const lagSec = Number.isFinite(sentAt) ? Phaser.Math.Clamp((nowMs - sentAt) / 1000, 0, 0.25) : 0;
       const seen = new Set();
       rows.forEach((row) => {
         const id = String(row?.id || '');
@@ -742,8 +760,11 @@ export default class GameScene extends Phaser.Scene {
         if (!enemy || !enemy.active) return;
         if (Number.isFinite(vx)) enemy.netVx = vx;
         if (Number.isFinite(vy)) enemy.netVy = vy;
-        if (Number.isFinite(x)) enemy.netTx = x + ((Number.isFinite(vx) ? vx : 0) * lagSec);
-        if (Number.isFinite(y)) enemy.netTy = y + ((Number.isFinite(vy) ? vy : 0) * lagSec);
+        if (Number.isFinite(x)) enemy.netTx = x;
+        if (Number.isFinite(y)) enemy.netTy = y;
+        if (Number.isFinite(x) || Number.isFinite(y)) {
+          enemy.netSyncAt = nowMs - Math.round(lagSec * 1000);
+        }
         if (Number.isFinite(hp)) enemy.hp = Math.max(0, hp);
       });
       this.enemies.children.iterate((e) => {
@@ -2656,13 +2677,18 @@ export default class GameScene extends Phaser.Scene {
       this.stageDirector.update(dt, this);
     }
 
+    const netNowMs = Date.now();
     this.enemies.children.iterate((e) => {
       if (!e || !e.active) return;
       if (this.isPvpMode && e.netId) {
         const tx = Number.isFinite(e.netTx) ? e.netTx : e.x;
         const ty = Number.isFinite(e.netTy) ? e.netTy : e.y;
-        const predX = tx + (Number.isFinite(e.netVx) ? e.netVx : 0) * dtSec;
-        const predY = ty + (Number.isFinite(e.netVy) ? e.netVy : 0) * dtSec;
+        const netVx = Number.isFinite(e.netVx) ? e.netVx : 0;
+        const netVy = Number.isFinite(e.netVy) ? e.netVy : 0;
+        const syncAtMs = Number.isFinite(e.netSyncAt) ? e.netSyncAt : netNowMs;
+        const ageSec = Phaser.Math.Clamp((netNowMs - syncAtMs) / 1000, 0, 0.25);
+        const predX = tx + netVx * ageSec;
+        const predY = ty + netVy * ageSec;
         const dxn = predX - e.x;
         const dyn = predY - e.y;
         const dist = Math.hypot(dxn, dyn);
@@ -2681,7 +2707,12 @@ export default class GameScene extends Phaser.Scene {
         return;
       }
       const skipMove = this.updateMiniBossPattern(e, dtSec);
-      if (skipMove) return;
+      if (skipMove) {
+        e.setPosition(e.x, e.y);
+        if (e.visual) e.visual.setPosition(e.x, e.y);
+        if (e.shadow) e.shadow.setPosition(e.x, e.y + (e.body?.radius ?? 14) + 7);
+        return;
+      }
       let speedMul = 1;
       if ((e._blizzardSlowUntil ?? 0) > this.time.now) {
         speedMul = Math.min(speedMul, e._blizzardSlowMul ?? 1);
@@ -4570,11 +4601,23 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
+  destroyBossLaserFx(beam) {
+    if (!beam) return;
+    beam.glowGfx?.destroy();
+    beam.coreGfx?.destroy();
+    beam.hotGfx?.destroy();
+  }
+
   addBossLaser(x1, y1, x2, y2, durationSec = 0.55, width = 16, damage = 20) {
-    const gfx = this.add.graphics().setDepth(3);
+    const glowGfx = this.add.graphics().setDepth(7.6).setBlendMode(Phaser.BlendModes.ADD);
+    const coreGfx = this.add.graphics().setDepth(7.7).setBlendMode(Phaser.BlendModes.ADD);
+    const hotGfx = this.add.graphics().setDepth(7.8).setBlendMode(Phaser.BlendModes.ADD);
     this.bossLasers.push({
-      x1, y1, x2, y2, t: durationSec, maxT: durationSec, width, damage, gfx, hitAcc: 0
+      x1, y1, x2, y2, t: durationSec, maxT: durationSec, width, damage, glowGfx, coreGfx, hotGfx, hitAcc: 0
     });
+    this.emitBurst(x1, y1, { count: 6, tint: 0xff6f80, speedMin: 60, speedMax: 160, lifespan: 130 });
+    this.emitBurst(x2, y2, { count: 10, tint: 0xffdbe2, speedMin: 80, speedMax: 210, lifespan: 110 });
+    this.emitMagicSpark(x2, y2, 0xffeef2, 0.8);
   }
 
   updateBossLasers(dtSec) {
@@ -4583,12 +4626,29 @@ export default class GameScene extends Phaser.Scene {
       b.t -= dtSec;
       b.hitAcc += dtSec;
       const p = Phaser.Math.Clamp(b.t / Math.max(0.001, b.maxT), 0, 1);
-      b.gfx.clear();
-      b.gfx.lineStyle(b.width, 0xff3bd7, 0.22 + (1 - p) * 0.36);
-      b.gfx.beginPath();
-      b.gfx.moveTo(b.x1, b.y1);
-      b.gfx.lineTo(b.x2, b.y2);
-      b.gfx.strokePath();
+      const outerAlpha = 0.2 + (1 - p) * 0.34;
+      const coreAlpha = 0.52 + (1 - p) * 0.2;
+      const hotAlpha = 0.82 + (1 - p) * 0.12;
+      const coreW = Math.max(2, b.width * 0.28);
+      const hotW = Math.max(1.5, b.width * 0.14);
+      b.glowGfx.clear();
+      b.glowGfx.lineStyle(b.width, 0xff4f67, outerAlpha);
+      b.glowGfx.beginPath();
+      b.glowGfx.moveTo(b.x1, b.y1);
+      b.glowGfx.lineTo(b.x2, b.y2);
+      b.glowGfx.strokePath();
+      b.coreGfx.clear();
+      b.coreGfx.lineStyle(coreW, 0xff9aaa, coreAlpha);
+      b.coreGfx.beginPath();
+      b.coreGfx.moveTo(b.x1, b.y1);
+      b.coreGfx.lineTo(b.x2, b.y2);
+      b.coreGfx.strokePath();
+      b.hotGfx.clear();
+      b.hotGfx.lineStyle(hotW, 0xfff3f6, hotAlpha);
+      b.hotGfx.beginPath();
+      b.hotGfx.moveTo(b.x1, b.y1);
+      b.hotGfx.lineTo(b.x2, b.y2);
+      b.hotGfx.strokePath();
 
       if (b.hitAcc >= 0.12) {
         b.hitAcc = 0;
@@ -4600,7 +4660,7 @@ export default class GameScene extends Phaser.Scene {
       }
 
       if (b.t <= 0) {
-        b.gfx.destroy();
+        this.destroyBossLaserFx(b);
         this.bossLasers.splice(i, 1);
       }
     }
@@ -4683,6 +4743,15 @@ export default class GameScene extends Phaser.Scene {
       s.cd = Math.max(0, s.cd - dtSec);
       if (s.cd <= 0) {
         refreshAimToPlayer();
+        if (isBoss && e._debugForceDashOnce) {
+          e._debugForceDashOnce = false;
+          s.phase = 'dash_warn';
+          s.phaseT = 0.22;
+          s.comboLeft = 1;
+          const end = this.rayToBounds(e.x, e.y, s.dirX, s.dirY);
+          this.addLineWarning(e.x, e.y, end.x, end.y, s.phaseT, 0xffc857, 12);
+          return true;
+        }
         const roll = Math.random();
         if (roll < (isBoss ? 0.32 : 0.5)) {
           s.phase = 'dash_warn';
@@ -4972,6 +5041,7 @@ export default class GameScene extends Phaser.Scene {
       e.netTy = sy;
       e.netVx = Number.isFinite(opts?.vx) ? Number(opts.vx) : 0;
       e.netVy = Number.isFinite(opts?.vy) ? Number(opts.vy) : 0;
+      e.netSyncAt = Date.now();
       this.pvpEnemyIndex.set(e.netId, e);
       e.once('destroy', () => this.pvpEnemyIndex.delete(e.netId));
     }
@@ -4980,6 +5050,24 @@ export default class GameScene extends Phaser.Scene {
     }
     this.enemies.add(e);
     return e;
+  }
+
+  applyDebugRouteSettings() {
+    const cfg = this.debugRun;
+    if (!cfg?.enabled || this.isPvpMode) return;
+
+    let stage = Math.max(1, Math.floor(Number(cfg.stage || 1)));
+    if (cfg.forceBoss && (stage % 5) !== 0) {
+      stage = Math.min(STAGE_MODE_FINAL_STAGE, Math.max(5, Math.ceil(stage / 5) * 5));
+    }
+
+    this.stageDirector.stage = stage;
+    this.stageDirector.stageKills = 0;
+    this.stageDirector.stageCleared = false;
+    this.stageDirector.clearMs = 0;
+    this.stageDirector.waveAcc = 0;
+    this.stageDirector.bossAlive = false;
+    this.stageDirector.specialDoneForStage = false;
   }
 
   getEnemySoftCap() {
@@ -5005,6 +5093,9 @@ export default class GameScene extends Phaser.Scene {
     const boss = new Enemy(this, x, y, EnemyType.BOSS, hp, speed);
     boss.visual?.setScale(1.48);
     boss.isBossActor = true;
+    if (this.debugRun?.enabled && this.debugRun.forceDash) {
+      boss._debugForceDashOnce = true;
+    }
     this.enemies.add(boss);
 
     new FloatingText(this, boss.x, boss.y - 45, '보스 등장!', { fontSize: 22, color: '#ff3bd7' });

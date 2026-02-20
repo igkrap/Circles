@@ -111,6 +111,45 @@ export function effectToText(effects) {
   return lines.join(' / ');
 }
 
+export const RELIC_ICON_FILE_BY_ID = {
+  early_assault: 't1_combat_chip.png',
+  early_precision: 't1_precision_aim_pin.png',
+  early_rapid: 't1_light_loader.png',
+  early_ballistic: 't1_ballistic_correction_ring.png',
+  early_coolant: 't1_small_cooling_fins.png',
+  early_survival: 't1_buffer_plate.png',
+  early_regen: 't1_regen_patch.png',
+  early_shield: 't1_shield_residual_cell.png',
+  early_mobility: 't1_inertia_assist_boots.png',
+  early_scavenger: 't1_retrieval_hook.png',
+  early_execution: 't1_learning_accel_chip.png',
+  early_overclock: 't1_preheat_core.png',
+  mid_assault: 't2_highpressure_combat_chip.png',
+  mid_precision: 't2_precision_optic_lens.png',
+  mid_rapid: 't2_reinforced_loader.png',
+  mid_ballistic: 't2_ballistic_compiler.png',
+  mid_coolant: 't2_expanded_cooling_core.png',
+  mid_survival: 't2_medium_armor_plate.png',
+  mid_regen: 't2_nano_regen_module.png',
+  mid_shield: 't2_shield_capacitor.png',
+  mid_mobility: 't2_mobility_frame.png',
+  mid_scavenger: 't2_collection_drone_bay.png',
+  mid_execution: 't2_tactical_learning_chip.png',
+  mid_overclock: 't2_turbo_compute_core.png',
+  late_assault: 't3_thermal_runaway_injector.png',
+  late_precision: 't3_peak_critical_circuit.png',
+  late_rapid: 't3_glass_armor_frame.png',
+  late_ballistic: 't3_gambler_magazine.png',
+  late_coolant: 't3_doom_capacitor_cell.png',
+  late_survival: 't3_collapse_barrier.png',
+  late_regen: 't3_radiation_serum.png',
+  late_shield: 't3_neutron_shield_cell.png',
+  late_mobility: 't3_gravity_suppress_boots.png',
+  late_scavenger: 't3_blackbox_contract.png',
+  late_execution: 't3_battlefield_accel_injector.png',
+  late_overclock: 't3_event_horizon_core.png'
+};
+
 const RELIC_FAMILY_ICON_KEY = {
   assault: 'ico_relic_assault',
   precision: 'ico_relic_precision',
@@ -136,6 +175,8 @@ function relicFamilyFromId(id) {
 }
 
 export function getRelicIconKeyById(id) {
-  const family = relicFamilyFromId(id);
+  const relicId = String(id ?? '');
+  if (RELIC_ICON_FILE_BY_ID[relicId]) return `ico_relic_${relicId}`;
+  const family = relicFamilyFromId(relicId);
   return RELIC_FAMILY_ICON_KEY[family] ?? 'tex_gold';
 }
