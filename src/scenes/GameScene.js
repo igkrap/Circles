@@ -56,7 +56,7 @@ const HUD_COLOR_HP_SAFE = 0x55d98d;
 const HUD_COLOR_XP = 0x47d3ff;
 const HUD_COLOR_GOLD = '#ffd166';
 const SKILL_SLOT_ICON_SCALE = 0.38;
-const MOBILE_SKILL_ICON_SCALE = 0.28;
+const MOBILE_SKILL_ICON_SCALE = 0.24;
 const ENTITY_SIZE_SCALE = 1.5;
 const ENEMY_HITBOX_SCALE_REGULAR = 0.75;
 const PLAYER_BODY_RADIUS = 15 * ENTITY_SIZE_SCALE;
@@ -3094,8 +3094,12 @@ export default class GameScene extends Phaser.Scene {
         const cd = key ? Math.max(0, this.skillCooldowns[key] ?? 0) : 0;
         const cdDur = key ? this.getSkillCooldownDuration(key) : 0;
         const iconKey = unlocked ? (this.getSkillIconKey(key) ?? null) : null;
+        const mobileIconSize = Math.max(
+          10,
+          Math.floor(Math.min(b?.rect?.w ?? 78, b?.rect?.h ?? 78) * MOBILE_SKILL_ICON_SCALE)
+        );
         b.icon.setVisible(!!iconKey);
-        if (iconKey) b.icon.setTexture(iconKey);
+        if (iconKey) b.icon.setTexture(iconKey).setDisplaySize(mobileIconSize, mobileIconSize);
         b.btn.setStrokeStyle(2, (unlocked && cd <= 0) ? 0x57d5ff : 0x356089, 0.94);
         b.cd.setText(cd > 0 ? `${cd.toFixed(1)}s` : '');
         this.drawSlotCooldown({ cdOverlay: b.cdOverlay, rect: b.rect }, cdDur > 1e-6 ? cd / cdDur : 0);
