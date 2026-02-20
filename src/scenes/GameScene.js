@@ -55,6 +55,33 @@ const HUD_COLOR_HP = 0xff7361;
 const HUD_COLOR_HP_SAFE = 0x55d98d;
 const HUD_COLOR_XP = 0x47d3ff;
 const HUD_COLOR_GOLD = '#ffd166';
+const SKILL_SLOT_ICON_SCALE = 0.45;
+const ENTITY_SIZE_SCALE = 1.5;
+const ENEMY_HITBOX_SCALE_REGULAR = 0.75;
+const PLAYER_BODY_RADIUS = 15 * ENTITY_SIZE_SCALE;
+const PLAYER_VISUAL_SIZE = 38 * ENTITY_SIZE_SCALE;
+const PLAYER_SHADOW_OFFSET_Y = 20 * ENTITY_SIZE_SCALE;
+const PLAYER_SHADOW_WIDTH = 42 * ENTITY_SIZE_SCALE;
+const PLAYER_SHADOW_HEIGHT = 18 * ENTITY_SIZE_SCALE;
+const PVP_OPPONENT_HIT_RADIUS = 24 * ENTITY_SIZE_SCALE;
+const PVP_OPPONENT_LABEL_OFFSET_Y = 30 * ENTITY_SIZE_SCALE;
+const ENEMY_FALLBACK_HALF_WIDTH = 12 * ENTITY_SIZE_SCALE * ENEMY_HITBOX_SCALE_REGULAR;
+const ENEMY_SHADOW_FALLBACK_RADIUS = 14 * ENTITY_SIZE_SCALE;
+const ENEMY_SHADOW_OFFSET_Y = 7 * ENTITY_SIZE_SCALE;
+const FIRE_BOLT_OPPONENT_HIT_RADIUS = 22 * ENTITY_SIZE_SCALE;
+const PROJECTILE_HIT_PAD_ENEMY = 8 * ENTITY_SIZE_SCALE;
+const CONTACT_DAMAGE_PLAYER_RADIUS_SCALE = 0.72;
+const CONTACT_DAMAGE_ENEMY_RADIUS_SCALE = 0.72;
+const FIELD_COIN_SCALE = 1.2;
+const FIELD_COIN_PICKUP_RADIUS = 9 * FIELD_COIN_SCALE;
+
+function getEnemyBodyRadiusByType(type) {
+  const baseRadius = (type === EnemyType.BOSS) ? 28
+    : (type === EnemyType.MINIBOSS ? 22 : (type === EnemyType.TANK ? 17 : 13));
+  const scaled = baseRadius * ENTITY_SIZE_SCALE;
+  if (type === EnemyType.BOSS || type === EnemyType.MINIBOSS) return scaled;
+  return scaled * ENEMY_HITBOX_SCALE_REGULAR;
+}
 
 function getMmrTierLabel(mmr) {
   const v = Number(mmr || 1000);
@@ -75,7 +102,8 @@ class GoldPickup extends Phaser.Physics.Arcade.Sprite {
     scene.physics.add.existing(this);
 
     this.setDepth(5);
-    this.setCircle(9);
+    this.setScale(FIELD_COIN_SCALE);
+    this.setCircle(FIELD_COIN_PICKUP_RADIUS);
     this.body.setAllowGravity(false);
     if (hasSheet && scene.anims.exists('gold_spin')) {
       this.play('gold_spin');
@@ -111,8 +139,10 @@ class Enemy extends Phaser.Physics.Arcade.Sprite {
     this.body.setAllowGravity(false);
     this.body.setCollideWorldBounds(true);
 
-    const r = (type === EnemyType.BOSS) ? 28 : (type === EnemyType.MINIBOSS ? 22 : (type === EnemyType.TANK ? 17 : 13));
+    const r = getEnemyBodyRadiusByType(type);
     this.setCircle(r);
+    const baseSize = r * 2.4;
+    this.setDisplaySize(baseSize, baseSize);
     if (type === EnemyType.MINIBOSS) {
       this.setScale(1.18);
     }
@@ -134,7 +164,6 @@ class Enemy extends Phaser.Physics.Arcade.Sprite {
       this.visual = useStaticImage
         ? scene.add.image(x, y, visualKey).setDepth(3)
         : scene.add.sprite(x, y, visualKey, 0).setDepth(3);
-      const baseSize = r * 2.4;
       this.visual.setDisplaySize(baseSize, baseSize);
       if (type === EnemyType.MINIBOSS) this.visual.setScale(1.18);
       if (!useStaticImage && animKey && scene.anims.exists(animKey)) this.visual.play(animKey);
@@ -180,7 +209,8 @@ export default class GameScene extends Phaser.Scene {
       enabled: !!debugRaw?.enabled,
       stage: Number.isFinite(debugStage) ? Phaser.Math.Clamp(debugStage, 0, STAGE_MODE_FINAL_STAGE) : 0,
       forceBoss: !!debugRaw?.forceBoss,
-      forceDash: !!debugRaw?.forceDash
+      forceDash: !!debugRaw?.forceDash,
+      solo: !!debugRaw?.solo
     };
     if (this.debugRun.enabled && this.debugRun.forceBoss && this.debugRun.stage <= 0) {
       this.debugRun.stage = 5;
@@ -251,17 +281,18 @@ export default class GameScene extends Phaser.Scene {
 
     this.player = this.physics.add.image(worldW / 2, worldH / 2, 'tex_player');
     this.player.setDepth(4);
-    this.player.setCircle(15);
+    this.player.setCircle(PLAYER_BODY_RADIUS);
+    this.player.setDisplaySize(PLAYER_VISUAL_SIZE, PLAYER_VISUAL_SIZE);
     this.player.setCollideWorldBounds(true);
     this.playerVisual = null;
     if (this.textures.exists('spr_player')) {
       this.player.setVisible(false);
       this.playerVisual = this.add.sprite(this.player.x, this.player.y, 'spr_player', 0).setDepth(4);
-      this.playerVisual.setDisplaySize(38, 38);
+      this.playerVisual.setDisplaySize(PLAYER_VISUAL_SIZE, PLAYER_VISUAL_SIZE);
       if (this.anims.exists('player_cycle')) this.playerVisual.play('player_cycle');
     }
-    this.playerShadow = this.add.image(this.player.x, this.player.y + 20, 'tex_shadow').setDepth(2).setAlpha(0.45);
-    this.playerShadow.setDisplaySize(42, 18);
+    this.playerShadow = this.add.image(this.player.x, this.player.y + PLAYER_SHADOW_OFFSET_Y, 'tex_shadow').setDepth(2).setAlpha(0.45);
+    this.playerShadow.setDisplaySize(PLAYER_SHADOW_WIDTH, PLAYER_SHADOW_HEIGHT);
     this.playerAura = this.add.image(this.player.x, this.player.y, 'tex_aura_ring').setDepth(3).setAlpha(0.55);
     this.playerAura.setBlendMode(Phaser.BlendModes.ADD);
     this.defenseCore = null;
@@ -376,7 +407,7 @@ export default class GameScene extends Phaser.Scene {
     if (this.isPvpMode) {
       this.connectPvp().catch((err) => {
         const msg = String(err?.message || err || '').slice(0, 90);
-        this.pvpStatusText?.setText(`${this.isCoopMode ? '협동' : 'PVP'} 연결 실패: ${msg}`);
+        this.pvpStatusText?.setText(`${this.isCoopMode ? '협동' : 'PVP'} 연결 오류: ${msg}`);
       });
     }
 
@@ -495,20 +526,31 @@ export default class GameScene extends Phaser.Scene {
     const y = this.player.y;
     const body = this.physics.add.image(x, y, 'tex_player');
     body.setDepth(4);
-    body.setCircle(15);
+    body.setCircle(PLAYER_BODY_RADIUS);
+    body.setDisplaySize(PLAYER_VISUAL_SIZE, PLAYER_VISUAL_SIZE);
     body.setTint(this.isCoopMode ? 0x8fb4ff : 0xff8fb4);
     body.setCollideWorldBounds(true);
     body.body.setAllowGravity(false);
-    const visual = this.add.image(x, y, 'tex_player').setDepth(4).setTint(this.isCoopMode ? 0x8fb4ff : 0xff8fb4);
+    const useEliteVisual = true;
+    let visual;
+    if (useEliteVisual && this.textures.exists('spr_enemy_elite')) {
+      visual = this.add.sprite(x, y, 'spr_enemy_elite', 0).setDepth(4);
+      if (this.anims.exists('enemy_elite_cycle')) visual.play('enemy_elite_cycle');
+    } else if (useEliteVisual && this.textures.exists('tex_enemy_elite')) {
+      visual = this.add.image(x, y, 'tex_enemy_elite').setDepth(4);
+    } else {
+      visual = this.add.image(x, y, 'tex_player').setDepth(4).setTint(this.isCoopMode ? 0x8fb4ff : 0xff8fb4);
+    }
+    visual.setDisplaySize(PLAYER_VISUAL_SIZE, PLAYER_VISUAL_SIZE);
 
-    const shadow = this.add.image(x, y + 20, 'tex_shadow').setDepth(2).setAlpha(0.45);
-    shadow.setDisplaySize(42, 18);
-    const label = this.add.text(x, y + 30, this.isCoopMode ? '팀원' : '상대', {
+    const shadow = this.add.image(x, y + PLAYER_SHADOW_OFFSET_Y, 'tex_shadow').setDepth(2).setAlpha(0.45);
+    shadow.setDisplaySize(PLAYER_SHADOW_WIDTH, PLAYER_SHADOW_HEIGHT);
+    const label = this.add.text(x, y + PVP_OPPONENT_LABEL_OFFSET_Y, this.isCoopMode ? '팀원' : '상대', {
       fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
       fontSize: '13px',
       color: '#aab6d6'
     }).setOrigin(0.5).setDepth(7);
-    const hpLabel = this.add.text(x, y - 30, 'HP -', {
+    const hpLabel = this.add.text(x, y - PVP_OPPONENT_LABEL_OFFSET_Y, 'HP -', {
       fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
       fontSize: '14px',
       color: '#eaf0ff'
@@ -530,7 +572,8 @@ export default class GameScene extends Phaser.Scene {
       hp: 50,
       maxHp: 50,
       level: 1,
-      name: '상대'
+      name: '상대',
+      useEliteVisual
     };
     body.setVisible(false);
     shadow.setVisible(false);
@@ -558,8 +601,13 @@ export default class GameScene extends Phaser.Scene {
       joinOptions.debug = 1;
       if (this.debugRun.stage > 0) joinOptions.debugStage = this.debugRun.stage;
       if (this.debugRun.forceDash) joinOptions.debugDash = 1;
+      if (this.debugRun.solo) joinOptions.debugSolo = 1;
     }
-    this.pvpRoom = await this.pvpClient.joinOrCreate(this.isCoopMode ? 'battle_coop' : 'battle_survival', joinOptions);
+    const debugSoloRoom = this.debugRun?.enabled && this.debugRun?.solo;
+    const roomName = debugSoloRoom
+      ? (this.isCoopMode ? 'battle_coop_debug' : 'battle_survival_debug')
+      : (this.isCoopMode ? 'battle_coop' : 'battle_survival');
+    this.pvpRoom = await this.pvpClient.joinOrCreate(roomName, joinOptions);
     this.pvpSelfSid = this.pvpRoom.sessionId;
     this.pvpStatusText?.setText(this.isCoopMode ? '협동 대기 중...' : 'PVP 대기 중...');
 
@@ -1224,16 +1272,19 @@ export default class GameScene extends Phaser.Scene {
       this.pvpOpponent.y += dy * lerpT;
     }
     this.pvpOpponent.body.setPosition(this.pvpOpponent.x, this.pvpOpponent.y);
-    this.pvpOpponent.visual.setPosition(this.pvpOpponent.x, this.pvpOpponent.y).setAlpha(1).clearTint().setTint(this.isCoopMode ? 0x8fb4ff : 0xff8fb4);
+    this.pvpOpponent.visual.setPosition(this.pvpOpponent.x, this.pvpOpponent.y).setAlpha(1).clearTint();
+    if (!this.pvpOpponent.useEliteVisual) {
+      this.pvpOpponent.visual.setTint(this.isCoopMode ? 0x8fb4ff : 0xff8fb4);
+    }
     if (this.pvpOpponent.body.body) {
       this.pvpOpponent.body.body.enable = true;
       this.pvpOpponent.body.body.checkCollision.none = false;
       this.pvpOpponent.body.body.setAllowGravity(false);
       this.pvpOpponent.body.body.setVelocity(0, 0);
     }
-    this.pvpOpponent.shadow.setPosition(this.pvpOpponent.x, this.pvpOpponent.y + 20);
-    this.pvpOpponent.label.setPosition(this.pvpOpponent.x, this.pvpOpponent.y + 30).setText(this.pvpOpponent.name || (this.isCoopMode ? '팀원' : '상대')).setAlpha(1);
-    this.pvpOpponent.hpLabel.setPosition(this.pvpOpponent.x, this.pvpOpponent.y - 30).setText(`HP ${Math.max(0, Math.floor(this.pvpOpponent.hp))} Lv.${Math.max(1, Math.floor(this.pvpOpponent.level))}`).setAlpha(1);
+    this.pvpOpponent.shadow.setPosition(this.pvpOpponent.x, this.pvpOpponent.y + PLAYER_SHADOW_OFFSET_Y);
+    this.pvpOpponent.label.setPosition(this.pvpOpponent.x, this.pvpOpponent.y + PVP_OPPONENT_LABEL_OFFSET_Y).setText(this.pvpOpponent.name || (this.isCoopMode ? '팀원' : '상대')).setAlpha(1);
+    this.pvpOpponent.hpLabel.setPosition(this.pvpOpponent.x, this.pvpOpponent.y - PVP_OPPONENT_LABEL_OFFSET_Y).setText(`HP ${Math.max(0, Math.floor(this.pvpOpponent.hp))} Lv.${Math.max(1, Math.floor(this.pvpOpponent.level))}`).setAlpha(1);
   }
 
   updatePvpRemoteShots(dtSec) {
@@ -1286,9 +1337,53 @@ export default class GameScene extends Phaser.Scene {
   getPvpOpponentPoint() {
     if (!this.pvpOpponent) return null;
     return {
-      x: Number.isFinite(this.pvpOpponent.x) ? this.pvpOpponent.x : this.pvpOpponent.body?.x,
-      y: Number.isFinite(this.pvpOpponent.y) ? this.pvpOpponent.y : this.pvpOpponent.body?.y
+      x: Number.isFinite(this.pvpOpponent?.body?.body?.center?.x)
+        ? this.pvpOpponent.body.body.center.x
+        : (Number.isFinite(this.pvpOpponent.x) ? this.pvpOpponent.x : this.pvpOpponent.body?.x),
+      y: Number.isFinite(this.pvpOpponent?.body?.body?.center?.y)
+        ? this.pvpOpponent.body.body.center.y
+        : (Number.isFinite(this.pvpOpponent.y) ? this.pvpOpponent.y : this.pvpOpponent.body?.y)
     };
+  }
+
+  getPvpOpponentHitRadius() {
+    const r = Number(this.pvpOpponent?.body?.body?.halfWidth ?? this.pvpOpponent?.body?.halfWidth);
+    return Number.isFinite(r) && r > 0 ? r : PLAYER_BODY_RADIUS;
+  }
+
+  getEnemyHitRadius(enemy) {
+    const r = Number(enemy?.body?.halfWidth ?? enemy?.body?.radius);
+    return Number.isFinite(r) && r > 0 ? r : ENEMY_FALLBACK_HALF_WIDTH;
+  }
+
+  getPlayerContactHitRadius() {
+    return PLAYER_BODY_RADIUS * CONTACT_DAMAGE_PLAYER_RADIUS_SCALE;
+  }
+
+  getEnemyContactHitRadius(enemy) {
+    return this.getEnemyHitRadius(enemy) * CONTACT_DAMAGE_ENEMY_RADIUS_SCALE;
+  }
+
+  getBodyCenterPoint(entity, fallbackX = 0, fallbackY = 0) {
+    const cx = Number(entity?.body?.center?.x ?? entity?.center?.x);
+    const cy = Number(entity?.body?.center?.y ?? entity?.center?.y);
+    if (Number.isFinite(cx) && Number.isFinite(cy)) return { x: cx, y: cy };
+    const x = Number(entity?.x ?? fallbackX);
+    const y = Number(entity?.y ?? fallbackY);
+    return {
+      x: Number.isFinite(x) ? x : 0,
+      y: Number.isFinite(y) ? y : 0
+    };
+  }
+
+  isPlayerInContactWithEnemy(enemy, playerObj = this.player, px = this.player.x, py = this.player.y) {
+    if (!enemy?.active) return false;
+    const playerCenter = this.getBodyCenterPoint(playerObj, px, py);
+    const enemyCenter = this.getBodyCenterPoint(enemy, enemy?.x, enemy?.y);
+    const dx = playerCenter.x - enemyCenter.x;
+    const dy = playerCenter.y - enemyCenter.y;
+    const rr = this.getPlayerContactHitRadius() + this.getEnemyContactHitRadius(enemy);
+    return (dx * dx + dy * dy) <= (rr * rr);
   }
 
   canHitPvpOpponent() {
@@ -2240,7 +2335,7 @@ export default class GameScene extends Phaser.Scene {
       slot.bg.setPosition(x + box * 0.5, y + box * 0.5).setSize(box, box);
       slot.border.setPosition(x + box * 0.5, y + box * 0.5).setSize(box, box);
       slot.num.setPosition(x + Math.round(4 * hudScale), y + Math.round(2 * hudScale)).setFontSize(Math.max(10, Math.floor(box * 0.18)));
-      slot.iconSprite.setPosition(x + box * 0.5, y + box * 0.5 + 1).setDisplaySize(box * 0.41, box * 0.41).setAlpha(0.98);
+      slot.iconSprite.setPosition(x + box * 0.5, y + box * 0.5 + 1).setDisplaySize(box * SKILL_SLOT_ICON_SCALE, box * SKILL_SLOT_ICON_SCALE).setAlpha(0.98);
       slot.icon.setPosition(x + box * 0.5, y + box * 0.5 + 2).setFontSize(Math.max(10, Math.floor(box * 0.21)));
       slot.rank.setPosition(x + box - Math.round(5 * hudScale), y + box - Math.round(5 * hudScale)).setFontSize(Math.max(10, Math.floor(box * 0.18)));
       slot.cdText.setPosition(x + box * 0.5, y + box * 0.5).setFontSize(Math.max(10, Math.floor(box * 0.19)));
@@ -2271,8 +2366,8 @@ export default class GameScene extends Phaser.Scene {
     }
 
     const traitCols = Math.min(8, Math.max(1, this.ui.traitSlots.length));
-    const traitIconSize = Math.round((w < 720 ? 12 : 13) * hudScale);
-    const traitGap = Math.max(5, Math.round((w < 720 ? 8 : 9) * hudScale));
+    const traitIconSize = Math.round((w < 720 ? 15 : 16) * hudScale);
+    const traitGap = Math.max(5, Math.round((w < 720 ? 7 : 8) * hudScale));
     const traitRowW = (traitCols * traitIconSize) + ((traitCols - 1) * traitGap);
     const traitStartX = statusX + statusW - 12 - traitRowW;
     const traitY = statusY + Math.round(8 * hudScale);
@@ -2289,7 +2384,7 @@ export default class GameScene extends Phaser.Scene {
       const sx = traitStartX + i * (traitIconSize + traitGap);
       const sy = traitY;
       slot.slotBg.setVisible(false).setPosition(sx, sy).setSize(traitIconSize, traitIconSize);
-      slot.icon.setVisible(false).setPosition(sx + traitIconSize * 0.5, sy + traitIconSize * 0.5).setDisplaySize(traitIconSize - 3, traitIconSize - 3);
+      slot.icon.setVisible(false).setPosition(sx + traitIconSize * 0.5, sy + traitIconSize * 0.5).setDisplaySize(traitIconSize - 2, traitIconSize - 2);
       slot.rank.setVisible(false).setPosition(sx + traitIconSize - 1, sy + traitIconSize - 1).setFontSize(Math.max(8, Math.round(9 * hudScale)));
     });
   }
@@ -2654,7 +2749,7 @@ export default class GameScene extends Phaser.Scene {
     const moveSpeed = this.playerSpeed * this.relicMoveSpeedMul;
     this.player.body.setVelocity(mv.x * moveSpeed * this.combatPace, mv.y * moveSpeed * this.combatPace);
     if (this.playerVisual) this.playerVisual.setPosition(this.player.x, this.player.y);
-    if (this.playerShadow) this.playerShadow.setPosition(this.player.x, this.player.y + 20);
+    if (this.playerShadow) this.playerShadow.setPosition(this.player.x, this.player.y + PLAYER_SHADOW_OFFSET_Y);
     if (this.playerAura) {
       this.playerAura.setPosition(this.player.x, this.player.y);
       this.playerAura.rotation += dtSec * 0.9;
@@ -2703,14 +2798,14 @@ export default class GameScene extends Phaser.Scene {
         e.body.setVelocity(0, 0);
         e.setPosition(e.x, e.y);
         if (e.visual) e.visual.setPosition(e.x, e.y);
-        if (e.shadow) e.shadow.setPosition(e.x, e.y + (e.body?.radius ?? 14) + 7);
+        if (e.shadow) e.shadow.setPosition(e.x, e.y + (e.body?.radius ?? ENEMY_SHADOW_FALLBACK_RADIUS) + ENEMY_SHADOW_OFFSET_Y);
         return;
       }
       const skipMove = this.updateMiniBossPattern(e, dtSec);
       if (skipMove) {
         e.setPosition(e.x, e.y);
         if (e.visual) e.visual.setPosition(e.x, e.y);
-        if (e.shadow) e.shadow.setPosition(e.x, e.y + (e.body?.radius ?? 14) + 7);
+        if (e.shadow) e.shadow.setPosition(e.x, e.y + (e.body?.radius ?? ENEMY_SHADOW_FALLBACK_RADIUS) + ENEMY_SHADOW_OFFSET_Y);
         return;
       }
       let speedMul = 1;
@@ -2732,17 +2827,16 @@ export default class GameScene extends Phaser.Scene {
       const len = Math.hypot(dx, dy) || 1;
       e.body.setVelocity((dx / len) * e.speed * speedMul * this.enemyPace, (dy / len) * e.speed * speedMul * this.enemyPace);
       if (e.visual) e.visual.setPosition(e.x, e.y);
-      if (e.shadow) e.shadow.setPosition(e.x, e.y + (e.body?.radius ?? 14) + 7);
+      if (e.shadow) e.shadow.setPosition(e.x, e.y + (e.body?.radius ?? ENEMY_SHADOW_FALLBACK_RADIUS) + ENEMY_SHADOW_OFFSET_Y);
     });
 
     this.bullets.children.iterate((b) => {
       if (!b || !b.active) return;
       if (this.isPvpMode && this.pvpRoundStarted && this.pvpOpponentSid && this.pvpOpponent) {
-        const ox = Number.isFinite(this.pvpOpponent.body?.x) ? this.pvpOpponent.body.x : this.pvpOpponent.x;
-        const oy = Number.isFinite(this.pvpOpponent.body?.y) ? this.pvpOpponent.body.y : this.pvpOpponent.y;
-        const dx = b.x - ox;
-        const dy = b.y - oy;
-        const rr = 24;
+        const op = this.getBodyCenterPoint(this.pvpOpponent.body, this.pvpOpponent.x, this.pvpOpponent.y);
+        const dx = b.x - op.x;
+        const dy = b.y - op.y;
+        const rr = PVP_OPPONENT_HIT_RADIUS;
         if ((dx * dx + dy * dy) <= rr * rr) {
           this.onBulletHitPvpOpponent(b);
           if (!b.active) return;
@@ -2854,10 +2948,10 @@ export default class GameScene extends Phaser.Scene {
 
     const flags = this.abilitySystem.synergyFlags();
     const sy = [];
-    if (flags.MECHANIC) sy.push('기계(액티브 사거리 +25%)');
-    if (flags.SWORDSMAN) sy.push('검사(생명력 흡수 +12%)');
-    if (flags.RANGER) sy.push('레인저(기본 공격 관통)');
-    if (flags.MAGE) sy.push('마법사(액티브 쿨타임 -40%)');
+    if (flags.MECHANIC) sy.push('기계공학(액티브 쿨타임 +25%)');
+    if (flags.SWORDSMAN) sy.push('검술사(기본공격 피해 +12%)');
+    if (flags.RANGER) sy.push('저격수(기본 치명타 확률)');
+    if (flags.MAGE) sy.push('아케인(액티브 쿨타임 -40%)');
     this.ui.synergy.setText(sy.length > 0 ? sy.join('  ') : '');
 
     if (this.isPvpMode) {
@@ -2960,7 +3054,7 @@ export default class GameScene extends Phaser.Scene {
         if (iconKey) {
           slotUi.iconSprite
             .setTexture(iconKey)
-            .setDisplaySize(slotUi.rect.w * 0.41, slotUi.rect.w * 0.41)
+            .setDisplaySize(slotUi.rect.w * SKILL_SLOT_ICON_SCALE, slotUi.rect.w * SKILL_SLOT_ICON_SCALE)
             .setVisible(true);
           slotUi.icon.setText('');
         } else {
@@ -3016,7 +3110,7 @@ export default class GameScene extends Phaser.Scene {
           .setVisible(true)
           .setFillStyle(0x17325a, 0.92)
           .setStrokeStyle(1, 0x4d81b2, 0.9);
-        const iconSize = Math.max(6, (this.ui.traitLayout?.iconSize ?? 12) - 3);
+        const iconSize = Math.max(6, (this.ui.traitLayout?.iconSize ?? 12) - 2);
         slot.icon.setTexture(tex).setDisplaySize(iconSize, iconSize).setVisible(true);
         slot.rank.setText(rank > 1 ? `${rank}` : '').setVisible(rank > 1);
       }
@@ -3890,7 +3984,7 @@ export default class GameScene extends Phaser.Scene {
     this.enemies.children.iterate((e) => {
       if (!e || !e.active) return;
       const d = Phaser.Math.Distance.Between(this.player.x, this.player.y, e.x, e.y);
-      if (d <= radius + 10) {
+      if (d <= radius + this.getEnemyHitRadius(e)) {
         this.dealDamageToEnemy(e, dmg, true, 'SHOCKWAVE');
       }
     });
@@ -3898,7 +3992,7 @@ export default class GameScene extends Phaser.Scene {
       const op = this.getPvpOpponentPoint();
       if (op) {
         const d = Phaser.Math.Distance.Between(this.player.x, this.player.y, op.x, op.y);
-        if (d <= radius + 14) this.tryPvpSkillDamage(dmg, 'SHOCKWAVE', 120);
+        if (d <= radius + this.getPvpOpponentHitRadius()) this.tryPvpSkillDamage(dmg, 'SHOCKWAVE', 120);
       }
     }
     return true;
@@ -3952,7 +4046,7 @@ export default class GameScene extends Phaser.Scene {
     this.enemies.children.iterate((e) => {
       if (!e || !e.active) return;
       const d2 = this.pointSegDistSq(e.x, e.y, x1, y1, x2, y2);
-      const rr = (e.body?.halfWidth ?? 12) + width * 0.5;
+      const rr = (e.body?.halfWidth ?? ENEMY_FALLBACK_HALF_WIDTH) + width * 0.5;
       if (d2 <= rr * rr) {
         this.dealDamageToEnemy(e, dmg, true, 'LASER');
       }
@@ -3961,7 +4055,7 @@ export default class GameScene extends Phaser.Scene {
       const op = this.getPvpOpponentPoint();
       if (op) {
         const d2 = this.pointSegDistSq(op.x, op.y, x1, y1, x2, y2);
-        const rr = 15 + width * 0.5;
+        const rr = PLAYER_BODY_RADIUS + width * 0.5;
         if (d2 <= rr * rr) this.tryPvpSkillDamage(dmg, 'LASER', 90);
       }
     }
@@ -4068,14 +4162,14 @@ export default class GameScene extends Phaser.Scene {
     this.emitSwish(this.player.x, this.player.y, baseAng, rArc, 0xfff0cf, 140);
     this.emitScreenFlash(0xffd7a4, 0.045, 70);
     this.skillShake(0.002, 80);
-    new FloatingText(this, this.player.x, this.player.y - 20, '베기', { fontSize: 12, color: '#ffdca8' });
+    new FloatingText(this, this.player.x, this.player.y - 20, '관통', { fontSize: 12, color: '#ffdca8' });
 
     this.enemies.children.iterate((e) => {
       if (!e || !e.active) return;
       const vx = e.x - this.player.x;
       const vy = e.y - this.player.y;
       const d = Math.hypot(vx, vy);
-      if (d > range || d < 1) return;
+      if (d > range + this.getEnemyHitRadius(e) || d < 1) return;
       const dot = (vx / d) * aim.x + (vy / d) * aim.y;
       const ang = Math.acos(Phaser.Math.Clamp(dot, -1, 1));
       if (ang <= halfAng) this.dealDamageToEnemy(e, dmg, true, 'FWD_SLASH');
@@ -4086,7 +4180,7 @@ export default class GameScene extends Phaser.Scene {
         const vx = op.x - this.player.x;
         const vy = op.y - this.player.y;
         const d = Math.hypot(vx, vy);
-        if (d > 1 && d <= range) {
+        if (d > 1 && d <= range + this.getPvpOpponentHitRadius()) {
           const dot = (vx / d) * aim.x + (vy / d) * aim.y;
           const ang = Math.acos(Phaser.Math.Clamp(dot, -1, 1));
           if (ang <= halfAng) this.tryPvpSkillDamage(dmg, 'FWD_SLASH', 110);
@@ -4144,14 +4238,14 @@ export default class GameScene extends Phaser.Scene {
     this.enemies.children.iterate((e) => {
       if (!e || !e.active) return;
       const d2 = this.pointSegDistSq(e.x, e.y, sx, sy, ex, ey);
-      const rr = (e.body?.halfWidth ?? 12) + width * 0.5;
+      const rr = (e.body?.halfWidth ?? ENEMY_FALLBACK_HALF_WIDTH) + width * 0.5;
       if (d2 <= rr * rr) this.dealDamageToEnemy(e, dmg, true, 'DASH');
     });
     if (this.canHitPvpOpponent()) {
       const op = this.getPvpOpponentPoint();
       if (op) {
         const d2 = this.pointSegDistSq(op.x, op.y, sx, sy, ex, ey);
-        const rr = 15 + width * 0.5;
+        const rr = PLAYER_BODY_RADIUS + width * 0.5;
         if (d2 <= rr * rr) this.tryPvpSkillDamage(dmg, 'DASH', 120);
       }
     }
@@ -4197,7 +4291,7 @@ export default class GameScene extends Phaser.Scene {
       if (!this.canHitPvpOpponent()) return false;
       const op = this.getPvpOpponentPoint();
       if (!op) return false;
-      return Phaser.Math.Distance.Between(this.player.x, this.player.y, op.x, op.y) <= range + 10;
+      return Phaser.Math.Distance.Between(this.player.x, this.player.y, op.x, op.y) <= range + this.getPvpOpponentHitRadius();
     })();
 
     const alive = this.enemies.getChildren().filter((e) => e.active);
@@ -4207,7 +4301,7 @@ export default class GameScene extends Phaser.Scene {
     let best = Infinity;
     alive.forEach((e) => {
       const d = Phaser.Math.Distance.Between(this.player.x, this.player.y, e.x, e.y);
-      if (d < best && d <= range) {
+      if (d < best && d <= range + this.getEnemyHitRadius(e)) {
         best = d;
         current = e;
       }
@@ -4240,7 +4334,7 @@ export default class GameScene extends Phaser.Scene {
       const op = this.getPvpOpponentPoint();
       if (op) {
         const d = Phaser.Math.Distance.Between(this.player.x, this.player.y, op.x, op.y);
-        if (d <= range + 10) {
+        if (d <= range + this.getPvpOpponentHitRadius()) {
           this.drawLightning(this.player.x, this.player.y, op.x, op.y, 0xb18cff);
           this.tryPvpSkillDamage(dmg, 'CHAIN_LIGHTNING', 140);
         }
@@ -4360,7 +4454,7 @@ export default class GameScene extends Phaser.Scene {
     this.enemies.children.iterate((e) => {
       if (!e || !e.active) return;
       const d = Phaser.Math.Distance.Between(g.x, g.y, e.x, e.y);
-      if (d <= g.radius + 10) {
+      if (d <= g.radius + this.getEnemyHitRadius(e)) {
         this.dealDamageToEnemy(e, g.damage, true, 'GRENADE');
       }
     });
@@ -4368,7 +4462,7 @@ export default class GameScene extends Phaser.Scene {
       const op = this.getPvpOpponentPoint();
       if (op) {
         const d = Phaser.Math.Distance.Between(g.x, g.y, op.x, op.y);
-        if (d <= g.radius + 14) this.tryPvpSkillDamage(g.damage, 'GRENADE', 130);
+        if (d <= g.radius + this.getPvpOpponentHitRadius()) this.tryPvpSkillDamage(g.damage, 'GRENADE', 130);
       }
     }
   }
@@ -4398,7 +4492,7 @@ export default class GameScene extends Phaser.Scene {
         this.enemies.children.iterate((e) => {
           if (!e || !e.active) return;
           const d = Phaser.Math.Distance.Between(b.x, b.y, e.x, e.y);
-          if (d <= b.radius + 10) {
+          if (d <= b.radius + this.getEnemyHitRadius(e)) {
             e._blizzardSlowUntil = this.time.now + 300;
             e._blizzardSlowMul = b.slowMul;
             this.dealDamageToEnemy(e, b.dmg, true, 'BLIZZARD');
@@ -4408,7 +4502,7 @@ export default class GameScene extends Phaser.Scene {
           const op = this.getPvpOpponentPoint();
           if (op) {
             const d = Phaser.Math.Distance.Between(b.x, b.y, op.x, op.y);
-            if (d <= b.radius + 14) this.tryPvpSkillDamage(b.dmg, 'BLIZZARD', Math.floor(b.tick * 1000 * 0.9));
+            if (d <= b.radius + this.getPvpOpponentHitRadius()) this.tryPvpSkillDamage(b.dmg, 'BLIZZARD', Math.floor(b.tick * 1000 * 0.9));
           }
         }
       }
@@ -4436,13 +4530,13 @@ export default class GameScene extends Phaser.Scene {
         this.enemies.children.iterate((e) => {
           if (!e || !e.active) return;
           const d = Phaser.Math.Distance.Between(this.player.x, this.player.y, e.x, e.y);
-          if (d <= a.radius + 10) this.dealDamageToEnemy(e, a.dmg, true, 'SPIN_SLASH');
+          if (d <= a.radius + this.getEnemyHitRadius(e)) this.dealDamageToEnemy(e, a.dmg, true, 'SPIN_SLASH');
         });
         if (this.canHitPvpOpponent()) {
           const op = this.getPvpOpponentPoint();
           if (op) {
             const d = Phaser.Math.Distance.Between(this.player.x, this.player.y, op.x, op.y);
-            if (d <= a.radius + 14) this.tryPvpSkillDamage(a.dmg, 'SPIN_SLASH', Math.floor(a.tick * 1000 * 0.9));
+            if (d <= a.radius + this.getPvpOpponentHitRadius()) this.tryPvpSkillDamage(a.dmg, 'SPIN_SLASH', Math.floor(a.tick * 1000 * 0.9));
           }
         }
       }
@@ -4466,14 +4560,14 @@ export default class GameScene extends Phaser.Scene {
       this.enemies.children.iterate((e) => {
         if (hitEnemy || !e || !e.active) return;
         const d = Phaser.Math.Distance.Between(f.x, f.y, e.x, e.y);
-        if (d <= (e.body?.halfWidth ?? 12) + 8) hitEnemy = true;
+        if (d <= (e.body?.halfWidth ?? ENEMY_FALLBACK_HALF_WIDTH) + PROJECTILE_HIT_PAD_ENEMY) hitEnemy = true;
       });
       let hitOpponent = false;
       if (this.canHitPvpOpponent()) {
         const op = this.getPvpOpponentPoint();
         if (op) {
           const d = Phaser.Math.Distance.Between(f.x, f.y, op.x, op.y);
-          if (d <= 22) hitOpponent = true;
+          if (d <= FIRE_BOLT_OPPONENT_HIT_RADIUS) hitOpponent = true;
         }
       }
 
@@ -4500,13 +4594,13 @@ export default class GameScene extends Phaser.Scene {
     this.enemies.children.iterate((e) => {
       if (!e || !e.active) return;
       const d = Phaser.Math.Distance.Between(f.x, f.y, e.x, e.y);
-      if (d <= f.explodeRadius + 10) this.dealDamageToEnemy(e, f.damage, true, 'FIRE_BOLT');
+      if (d <= f.explodeRadius + this.getEnemyHitRadius(e)) this.dealDamageToEnemy(e, f.damage, true, 'FIRE_BOLT');
     });
     if (this.canHitPvpOpponent()) {
       const op = this.getPvpOpponentPoint();
       if (op) {
         const d = Phaser.Math.Distance.Between(f.x, f.y, op.x, op.y);
-        if (d <= f.explodeRadius + 14) this.tryPvpSkillDamage(f.damage, 'FIRE_BOLT', 120);
+        if (d <= f.explodeRadius + this.getPvpOpponentHitRadius()) this.tryPvpSkillDamage(f.damage, 'FIRE_BOLT', 120);
       }
     }
   }
@@ -4653,7 +4747,7 @@ export default class GameScene extends Phaser.Scene {
       if (b.hitAcc >= 0.12) {
         b.hitAcc = 0;
         const d2 = this.pointSegDistSq(this.player.x, this.player.y, b.x1, b.y1, b.x2, b.y2);
-        const rr = (this.player.body?.halfWidth ?? 15) + b.width * 0.5;
+        const rr = this.getPlayerContactHitRadius() + b.width * 0.5;
         if (d2 <= rr * rr) {
           this.playerTakeDamage(b.damage);
         }
@@ -4784,7 +4878,7 @@ export default class GameScene extends Phaser.Scene {
               const radius = Phaser.Math.Between(92, 140);
               const sx = Phaser.Math.Clamp(e.x + Math.cos(a) * radius, 40, this.physics.world.bounds.width - 40);
               const sy = Phaser.Math.Clamp(e.y + Math.sin(a) * radius, 40, this.physics.world.bounds.height - 40);
-              this.queueEnemySpawn(sx, sy, Math.random() < 0.5 ? EnemyType.ELITE : EnemyType.TANK, 0.5 + i * 0.12);
+              this.queueEnemySpawn(sx, sy, EnemyType.TANK, 0.5 + i * 0.12);
             }
             s.cd = 1.6;
             return true;
@@ -5211,6 +5305,7 @@ export default class GameScene extends Phaser.Scene {
   onPlayerTouchEnemy(player, enemy) {
     if (!enemy.active) return;
     if (this.isPvpMode && enemy.netId) return;
+    if (!this.isPlayerInContactWithEnemy(enemy, player, player?.x ?? this.player.x, player?.y ?? this.player.y)) return;
 
     if (this.playerShield > 0 && enemy.type !== EnemyType.BOSS && enemy.type !== EnemyType.MINIBOSS) {
       this.playerShield -= 1;
@@ -5355,5 +5450,3 @@ export default class GameScene extends Phaser.Scene {
     });
   }
 }
-
-

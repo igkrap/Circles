@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { ABILITY_ICON_FILE_BY_KEY } from '../data/abilities.js';
 import { RELIC_ICON_FILE_BY_ID } from '../data/relics.js';
 
 export default class PreloadScene extends Phaser.Scene {
@@ -33,6 +34,9 @@ export default class PreloadScene extends Phaser.Scene {
     this.load.spritesheet('spr_slash', 'assets/VFX_slash.png', { frameWidth: 512, frameHeight: 512 });
     this.load.spritesheet('spr_blizzard', 'assets/VFX_blizzard.png', { frameWidth: 512, frameHeight: 512 });
     this.load.spritesheet('spr_gold_coin', 'assets/MonedaD.png', { frameWidth: 16, frameHeight: 16 });
+    Object.entries(ABILITY_ICON_FILE_BY_KEY).forEach(([abilityKey, file]) => {
+      this.load.image(`ico_${abilityKey}`, `assets/${file}`);
+    });
     Object.entries(RELIC_ICON_FILE_BY_ID).forEach(([relicId, file]) => {
       this.load.image(`ico_relic_${relicId}`, `assets/${file}`);
     });
@@ -458,6 +462,8 @@ export default class PreloadScene extends Phaser.Scene {
     };
 
     const makeSkillIcon = (key, bgColor, drawSymbol) => {
+      const textureKey = `ico_${key}`;
+      if (this.textures.exists(textureKey)) return;
       const size = 44;
       const g = this.make.graphics({ x: 0, y: 0, add: false });
       g.fillStyle(bgColor, 0.95);
@@ -466,7 +472,7 @@ export default class PreloadScene extends Phaser.Scene {
       g.strokeRoundedRect(1, 1, size - 2, size - 2, 10);
       g.lineStyle(3, 0xf4f8ff, 0.92);
       drawSymbol(g, size);
-      g.generateTexture(`ico_${key}`, size, size);
+      g.generateTexture(textureKey, size, size);
       g.destroy();
     };
 

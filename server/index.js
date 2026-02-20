@@ -1,4 +1,4 @@
-﻿import express from 'express';
+import express from 'express';
 import cors from 'cors';
 import jwt from 'jsonwebtoken';
 import path from 'node:path';
@@ -39,7 +39,21 @@ const ARENA_MIN_X = 24;
 const ARENA_MAX_X = WORLD_W - 24;
 const ARENA_MIN_Y = 24;
 const ARENA_MAX_Y = WORLD_H - 24;
-const PLAYER_CONTACT_RADIUS = 24;
+const ENTITY_SIZE_SCALE = 1.5;
+const ENEMY_HITBOX_SCALE_REGULAR = 0.75;
+const PLAYER_BODY_RADIUS = 15 * ENTITY_SIZE_SCALE;
+const CONTACT_DAMAGE_PLAYER_RADIUS_SCALE = 0.72;
+const CONTACT_DAMAGE_ENEMY_RADIUS_SCALE = 0.72;
+const PLAYER_CONTACT_DAMAGE_RADIUS = PLAYER_BODY_RADIUS * CONTACT_DAMAGE_PLAYER_RADIUS_SCALE;
+const ENEMY_BODY_RADIUS_BY_TYPE = Object.freeze({
+  scout: 13 * ENTITY_SIZE_SCALE * ENEMY_HITBOX_SCALE_REGULAR,
+  normal: 13 * ENTITY_SIZE_SCALE * ENEMY_HITBOX_SCALE_REGULAR,
+  tank: 17 * ENTITY_SIZE_SCALE * ENEMY_HITBOX_SCALE_REGULAR,
+  brute: 17 * ENTITY_SIZE_SCALE * ENEMY_HITBOX_SCALE_REGULAR,
+  elite: 13 * ENTITY_SIZE_SCALE * ENEMY_HITBOX_SCALE_REGULAR,
+  miniboss: 22 * ENTITY_SIZE_SCALE,
+  boss: 28 * ENTITY_SIZE_SCALE
+});
 
 const SHOT_DAMAGE_BASE = 10;
 const SHOT_COOLDOWN_MS_BASE = 370;
@@ -61,6 +75,7 @@ const ENEMY_CONTACT_DAMAGE = {
   miniboss: 22,
   boss: 34
 };
+const DEBUG_BOT_NAME = 'Debug Bot';
 
 const CARD_POOL = ['ATK_UP', 'FIRE_RATE_UP', 'MAX_HP_UP', 'MOVE_SPEED_UP', 'SHOT_RANGE_UP', 'HEAL_UP'];
 const PVP_ABILITY_KEYS = new Set([
@@ -925,6 +940,26 @@ function getSkillRank(profile, key) {
   return Math.max(0, Math.floor(Number(profile?.ranks?.[skillKey] || 0)));
 }
 
+function getServerEnemyBodyRadius(type = 'scout') {
+  const key = String(type || 'scout').trim().toLowerCase();
+  return ENEMY_BODY_RADIUS_BY_TYPE[key] ?? ENEMY_BODY_RADIUS_BY_TYPE.scout;
+}
+
+function getServerEnemyContactDamageRadius(type = 'scout') {
+  return getServerEnemyBodyRadius(type) * CONTACT_DAMAGE_ENEMY_RADIUS_SCALE;
+}
+
+function getServerContactDamageRange(type = 'scout') {
+  return PLAYER_CONTACT_DAMAGE_RADIUS + getServerEnemyContactDamageRadius(type);
+}
+
+function getServerTargetBodyRadius(targetType = 'pvp', targetEntityType = '') {
+  if (String(targetType || '').toLowerCase() === 'pve') {
+    return getServerEnemyBodyRadius(targetEntityType);
+  }
+  return PLAYER_BODY_RADIUS;
+}
+
 function getServerAttackCooldownMs(kind, key) {
   if (kind === 'skill') {
     const skillKey = normalizeSkillKey(key);
@@ -960,52 +995,65 @@ function getServerLifeStealRatio(profile = null) {
   return slash && dash && spin ? 0.12 : 0;
 }
 
-function getServerRangeAndArc(kind, key, profile = null) {
+function getServerRangeAndArc(kind, key, profile = null, targetType = 'pvp', targetEntityType = '') {
   const skillKey = kind === 'skill' ? normalizeSkillKey(key) : 'BASIC';
   const rangeMul = Math.max(0.25, Number(profile?.rangeMul || 1));
   const rank = getSkillRank(profile, skillKey);
+  const targetRadius = getServerTargetBodyRadius(targetType, targetEntityType);
   let baseRange = SERVER_SKILL_RANGE[skillKey] ?? SERVER_SKILL_RANGE.SKILL;
+  let rangePad = targetRadius;
   let baseArcDot = SERVER_SKILL_ARC_DOT[skillKey] ?? SERVER_SKILL_ARC_DOT.SKILL;
   if (skillKey === 'BASIC') {
     // Client bullets may travel long distances before contact callback.
     baseRange = 1800;
+    rangePad = targetRadius;
     baseArcDot = -1;
   } else if (skillKey === 'SHOCKWAVE') {
-    baseRange = (70 + 5 * Math.max(1, rank)) * 1.5 + 24;
+    baseRange = (70 + 5 * Math.max(1, rank)) * 1.5;
+    rangePad = targetRadius;
     baseArcDot = -1;
   } else if (skillKey === 'LASER') {
     baseRange = 720 + 40 * Math.max(1, rank);
+    rangePad = targetRadius;
     baseArcDot = 0.45;
   } else if (skillKey === 'GRENADE') {
     const throwRange = 210 + 14 * Math.max(1, rank);
     const explodeRadius = 110 + 10 * Math.max(1, rank);
-    baseRange = throwRange + explodeRadius + 24;
+    baseRange = throwRange + explodeRadius;
+    rangePad = targetRadius;
     baseArcDot = -1;
   } else if (skillKey === 'FWD_SLASH') {
-    baseRange = 120 + 10 * Math.max(1, rank) + 34;
+    baseRange = 120 + 10 * Math.max(1, rank);
+    rangePad = targetRadius;
     baseArcDot = 0.62;
   } else if (skillKey === 'DASH') {
-    baseRange = 210 + 16 * Math.max(1, rank) + 38;
+    const widthHalf = 17 + Math.max(1, rank);
+    baseRange = 210 + 16 * Math.max(1, rank);
+    rangePad = targetRadius + widthHalf;
     baseArcDot = 0.35;
   } else if (skillKey === 'SPIN_SLASH') {
-    baseRange = 85 + 8 * Math.max(1, rank) + 28;
+    baseRange = 85 + 8 * Math.max(1, rank);
+    rangePad = targetRadius;
     baseArcDot = -1;
   } else if (skillKey === 'CHAIN_LIGHTNING') {
-    baseRange = 520 + 25 * Math.max(1, rank) + 18;
+    baseRange = 520 + 25 * Math.max(1, rank);
+    rangePad = targetRadius;
     baseArcDot = -1;
   } else if (skillKey === 'BLIZZARD') {
     const castRange = 180 + 8 * Math.max(1, rank);
     const radius = 95 + 10 * Math.max(1, rank);
-    baseRange = castRange + radius + 18;
+    baseRange = castRange + radius;
+    rangePad = targetRadius;
     baseArcDot = -1;
   } else if (skillKey === 'FIRE_BOLT') {
     const maxRange = 560 + 30 * Math.max(1, rank);
     const explodeRadius = 85 + 10 * Math.max(1, rank);
-    baseRange = maxRange + explodeRadius + 20;
+    baseRange = maxRange + explodeRadius;
+    rangePad = targetRadius;
     baseArcDot = -1;
   }
   return {
-    range: baseRange * rangeMul,
+    range: (baseRange * rangeMul) + rangePad,
     arcDot: baseArcDot
   };
 }
@@ -1233,7 +1281,7 @@ class BattleRoom extends Room {
     const r = Math.random();
     let type = 'scout';
     if (elapsed > 45 && r > 0.75) type = 'brute';
-    if (elapsed > 90 && r > 0.9) type = 'elite';
+    if (elapsed > 90 && r > 0.9) type = 'brute';
 
     const e = new EnemyState();
     e.id = `e_${this.enemySeq++}`;
@@ -1280,7 +1328,7 @@ class BattleRoom extends Room {
       e.x = clamp(e.x + nx * e.speed * dtSec, ARENA_MIN_X, ARENA_MAX_X);
       e.y = clamp(e.y + ny * e.speed * dtSec, ARENA_MIN_Y, ARENA_MAX_Y);
 
-      if (dist <= PLAYER_CONTACT_RADIUS) {
+      if (dist <= getServerContactDamageRange(e.type)) {
         const key = `${target.sid}|${enemyId}`;
         const now = Date.now();
         const last = this.lastContactAt.get(key) || 0;
@@ -1496,12 +1544,14 @@ class BattleSurvivalRoom extends Room {
     this.isCoopMode = this.mode === 'coop';
     this.partyKey = this.isCoopMode ? String(options?.partyKey || '').trim() : '';
     const debugEnabled = parseBoolParam(options?.debug, false);
+    const debugSoloRequested = parseBoolParam(options?.debugSolo, false);
+    this.debugSolo = debugEnabled && debugSoloRequested;
     const debugStageRaw = Math.floor(Number(options?.debugStage || 0));
     this.debugCoopStage = (this.isCoopMode && debugEnabled && Number.isFinite(debugStageRaw))
       ? clamp(debugStageRaw, 0, COOP_FINAL_STAGE)
       : 0;
     this.debugCoopForceDash = this.isCoopMode && debugEnabled && parseBoolParam(options?.debugDash, false);
-    this.maxClients = 2;
+    this.maxClients = this.debugSolo ? 1 : 2;
     this.setState(new BattleState());
     this.sessionAuth = new Map();
     this.resultCommitted = false;
@@ -1522,6 +1572,7 @@ class BattleSurvivalRoom extends Room {
     this.coopStageKillGoal = this.getCoopStageKillGoal(1);
     this.coopReviveHolds = new Map();
     this.coopReviveStatusSig = new Map();
+    this.debugBotSid = '';
     this.startedAt = Date.now();
     this.roundStartAt = 0;
     this.setSimulationInterval((dt) => this.updatePve(dt));
@@ -1582,7 +1633,7 @@ class BattleSurvivalRoom extends Room {
       this.lastDamageAt.set(damageKey, now);
       let targetSid = toSid;
       if (!targetSid || targetSid === fromSid || !this.state.players.has(targetSid)) {
-        targetSid = this.clients.map((x) => x.sessionId).find((sid) => sid !== fromSid && this.state.players.has(sid)) || '';
+        targetSid = Array.from(this.state.players.keys()).find((sid) => sid !== fromSid && this.state.players.has(sid)) || '';
       }
       if (!targetSid) return;
       if (hitId) {
@@ -1597,7 +1648,7 @@ class BattleSurvivalRoom extends Room {
       const hitDx = target.x - attacker.x;
       const hitDy = target.y - attacker.y;
       const hitDist = Math.hypot(hitDx, hitDy);
-      const p = getServerRangeAndArc(kind, skillKey, combat);
+      const p = getServerRangeAndArc(kind, skillKey, combat, 'pvp');
       if (hitDist > p.range) return;
       if (p.arcDot > -0.9) {
         const inv = 1 / Math.max(1e-6, hitDist);
@@ -1664,7 +1715,7 @@ class BattleSurvivalRoom extends Room {
       const dy = Number(e.y) - Number(attacker.y);
       const distSq = dx * dx + dy * dy;
       const dist = Math.hypot(dx, dy);
-      const p = getServerRangeAndArc(kind, skillKey, combat);
+      const p = getServerRangeAndArc(kind, skillKey, combat, 'pve', String(e.type || 'scout'));
       if (dist > p.range) return;
       if (p.arcDot > -0.9) {
         const nx = dx / Math.max(1e-6, dist);
@@ -1792,7 +1843,7 @@ class BattleSurvivalRoom extends Room {
       if (Math.abs(dirX) < 1e-6 && Math.abs(dirY) < 1e-6) return;
 
       const rangeMul = Math.max(0.25, Number(combat.rangeMul || 1));
-      const maxDashDist = (210 + 16 * dashRank) * rangeMul + 30;
+      const maxDashDist = (210 + 16 * dashRank) * rangeMul;
       const moveDist = Math.min(
         Number.isFinite(aimedDist) ? aimedDist : maxDashDist,
         maxDashDist
@@ -1882,6 +1933,158 @@ class BattleSurvivalRoom extends Room {
       };
     }
     return base;
+  }
+
+  isDebugBotSid(sid) {
+    const id = String(sid || '');
+    return !!(this.debugSolo && this.debugBotSid && id && id === this.debugBotSid);
+  }
+
+  removeDebugBot() {
+    if (!this.debugBotSid) return;
+    const sid = this.debugBotSid;
+    this.debugBotSid = '';
+    this.state.players.delete(sid);
+    this.sessionAuth.delete(sid);
+    this.playerCombat.delete(sid);
+    this.playerMotion.delete(sid);
+    this.playerInputs.delete(sid);
+    for (const key of this.lastDamageAt.keys()) {
+      if (key.startsWith(`${sid}|`) || key.endsWith(`|${sid}`)) this.lastDamageAt.delete(key);
+    }
+    for (const key of this.lastAttackAt.keys()) {
+      if (key.startsWith(`${sid}|`) || key.endsWith(`|${sid}`)) this.lastAttackAt.delete(key);
+    }
+    for (const key of this.coopReviveStatusSig.keys()) {
+      if (key.includes(`|${sid}|`) || key.endsWith(`|${sid}`)) this.coopReviveStatusSig.delete(key);
+    }
+    for (const key of this.pveContactAt.keys()) {
+      if (key.endsWith(`|${sid}`)) this.pveContactAt.delete(key);
+    }
+  }
+
+  ensureDebugBot(anchorSid = '') {
+    if (!this.debugSolo || this.isCoopMode) return '';
+    if (this.debugBotSid && this.state.players.has(this.debugBotSid)) return this.debugBotSid;
+    const sidBase = String(this.roomId || 'room').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 24);
+    const sid = `debug_ai_${sidBase || 'bot'}`;
+    if (this.state.players.has(sid)) {
+      this.debugBotSid = sid;
+      return sid;
+    }
+
+    const anchor = this.state.players.get(String(anchorSid || this.clients[0]?.sessionId || ''));
+    const p = new PlayerState();
+    p.userId = '';
+    p.name = DEBUG_BOT_NAME;
+    p.x = clamp((Number(anchor?.x) || (WORLD_W * 0.5)) + 220, ARENA_MIN_X, ARENA_MAX_X);
+    p.y = clamp((Number(anchor?.y) || (WORLD_H * 0.5)), ARENA_MIN_Y, ARENA_MAX_Y);
+    p.hp = MAX_HP_BASE;
+    p.maxHp = MAX_HP_BASE;
+    p.level = 1;
+    p.xp = 0;
+    p.xpToNext = calcXpToNext(1);
+    p.facingX = -1;
+    p.facingY = 0;
+
+    this.state.players.set(sid, p);
+    this.sessionAuth.set(sid, { userId: '', name: DEBUG_BOT_NAME, bot: true });
+    this.playerCombat.set(sid, {
+      level: 1,
+      xp: 0,
+      xpToNext: calcXpToNext(1),
+      maxHp: MAX_HP_BASE,
+      unspentLevelups: 0,
+      atkMul: 1,
+      fireRateMul: 1,
+      rangeMul: 1,
+      critChance: 0,
+      xpGainMul: 1,
+      hpRegenPerSec: 0,
+      lifeStealAcc: 0,
+      maxHpMul: 1,
+      moveMul: 1,
+      ranks: Object.create(null)
+    });
+    this.playerMotion.set(sid, {
+      x: p.x,
+      y: p.y,
+      ts: Date.now()
+    });
+    this.playerInputs.set(sid, { mx: 0, my: 0 });
+    this.debugBotSid = sid;
+    return sid;
+  }
+
+  updateDebugBot(now, dtSec) {
+    if (!this.debugSolo || this.isCoopMode || this.state.phase !== 'running') return;
+    const sid = this.ensureDebugBot();
+    if (!sid) return;
+    const bot = this.state.players.get(sid);
+    if (!bot || bot.hp <= 0) return;
+
+    let targetSid = '';
+    let target = null;
+    let bestDist = Number.POSITIVE_INFINITY;
+    for (const [id, st] of this.state.players.entries()) {
+      if (id === sid || st.hp <= 0) continue;
+      const d = Math.hypot(st.x - bot.x, st.y - bot.y);
+      if (d < bestDist) {
+        bestDist = d;
+        targetSid = id;
+        target = st;
+      }
+    }
+
+    if (!target || !targetSid) {
+      this.playerInputs.set(sid, { mx: 0, my: 0 });
+      return;
+    }
+
+    const dx = Number(target.x || 0) - Number(bot.x || 0);
+    const dy = Number(target.y || 0) - Number(bot.y || 0);
+    const dist = Math.hypot(dx, dy) || 1;
+    const nx = dx / dist;
+    const ny = dy / dist;
+    bot.facingX = nx;
+    bot.facingY = ny;
+
+    let mx = 0;
+    let my = 0;
+    if (dist > 420) {
+      mx = nx;
+      my = ny;
+    } else if (dist < 230) {
+      mx = -nx;
+      my = -ny;
+    } else {
+      const strafe = Math.sin(now / 420);
+      mx = (-ny * 0.85) + (nx * 0.22 * strafe);
+      my = (nx * 0.85) + (ny * 0.22 * strafe);
+    }
+    const mvLen = Math.hypot(mx, my);
+    if (mvLen > 1e-6) {
+      mx /= mvLen;
+      my /= mvLen;
+    }
+    this.playerInputs.set(sid, { mx, my });
+
+    const combat = this.getCombatProfile(sid);
+    const atkKey = `${sid}|BASIC|ai`;
+    const prevShot = this.lastAttackAt.get(atkKey) || 0;
+    const shotCdMs = Math.max(220, Math.round(getServerAttackCooldownMs('basic', 'BASIC') * Math.max(0.2, Number(combat.fireRateMul || 1)) * 0.92));
+    if (now - prevShot < shotCdMs) return;
+    const p = getServerRangeAndArc('basic', 'BASIC', combat, 'pvp');
+    if (dist > Math.min(980, Number(p.range || 980))) return;
+    this.lastAttackAt.set(atkKey, now);
+
+    const dmg = getServerAuthorizedDamage('basic', 'BASIC', bot.level, 'pvp', combat);
+    if (dmg <= 0) return;
+    target.hp = Math.max(0, target.hp - dmg);
+    this.broadcast('pvp.damage', { fromSid: sid, toSid: targetSid, damage: dmg, hp: target.hp });
+    if (target.hp <= 0 && this.state.phase !== 'ended') {
+      this.finalizeMatch(sid, 'hp_zero');
+    }
   }
 
   findCoopReviveTargetSid(reviverSid) {
@@ -2143,17 +2346,17 @@ class BattleSurvivalRoom extends Room {
     if (s <= 5) {
       if (r < 0.58) return 'scout';
       if (r < 0.86) return 'tank';
-      return 'elite';
+      return 'tank';
     }
     if (s <= 10) {
       if (r < 0.4) return 'scout';
       if (r < 0.73) return 'tank';
-      if (r < 0.95) return 'elite';
+      if (r < 0.95) return 'tank';
       return 'miniboss';
     }
     if (r < 0.28) return 'scout';
     if (r < 0.6) return 'tank';
-    if (r < 0.9) return 'elite';
+    if (r < 0.9) return 'tank';
     return 'miniboss';
   }
 
@@ -2274,7 +2477,7 @@ class BattleSurvivalRoom extends Room {
     const stage = Math.max(1, Math.floor(Number(forcedStage || this.coopStage || 1)));
     const type = forcedType || (this.isCoopMode ? this.pickCoopEnemyType(stage) : (() => {
       const r = Math.random();
-      if (elapsedSec > 90 && r > 0.9) return 'elite';
+      if (elapsedSec > 90 && r > 0.9) return 'tank';
       if (elapsedSec > 45 && r > 0.76) return 'tank';
       return 'scout';
     })());
@@ -2357,6 +2560,7 @@ class BattleSurvivalRoom extends Room {
   }
 
   damagePlayerFromEnemy(sourceId, targetSid, damage, now) {
+    if (this.isDebugBotSid(targetSid)) return false;
     const target = this.state.players.get(targetSid);
     if (!target || target.hp <= 0) return false;
     const safeDamage = Math.max(1, Math.floor(Number(damage) || 0));
@@ -2387,7 +2591,7 @@ class BattleSurvivalRoom extends Room {
       }
       if (now < Number(atk.nextTickAt || 0)) continue;
       atk.nextTickAt = now + Math.max(50, Math.floor(Number(atk.tickMs || 120)));
-      const rr = PLAYER_CONTACT_RADIUS + Math.max(4, Number(atk.width || 0)) * 0.5;
+      const rr = PLAYER_CONTACT_DAMAGE_RADIUS + Math.max(4, Number(atk.width || 0)) * 0.5;
       const rrSq = rr * rr;
       for (const [sid, player] of this.state.players.entries()) {
         if (!player || player.hp <= 0) continue;
@@ -2480,7 +2684,7 @@ class BattleSurvivalRoom extends Room {
         const radius = randInt(98, 168);
         const x = clamp(Number(enemy.x || 0) + Math.cos(a) * radius, ARENA_MIN_X, ARENA_MAX_X);
         const y = clamp(Number(enemy.y || 0) + Math.sin(a) * radius, ARENA_MIN_Y, ARENA_MAX_Y);
-        let spawnType = 'elite';
+        let spawnType = 'tank';
         const pick = Math.random();
         if (!this.isCoopBossStage(stage) && stage >= 14 && pick > 0.84) {
           spawnType = 'miniboss';
@@ -2610,7 +2814,7 @@ class BattleSurvivalRoom extends Room {
         const dx = Number(p.x || 0) - Number(enemy.x || 0);
         const dy = Number(p.y || 0) - Number(enemy.y || 0);
         const distSq = dx * dx + dy * dy;
-        const radius = PLAYER_CONTACT_RADIUS + 24;
+        const radius = getServerContactDamageRange(enemy.type);
         if (distSq > radius * radius) continue;
         const hitKey = `dash|${enemy.id}|${sid}`;
         const lastHit = this.pveContactAt.get(hitKey) || 0;
@@ -2769,13 +2973,15 @@ class BattleSurvivalRoom extends Room {
       this.broadcast('match.go', { at: now });
     }
     if (this.state.phase !== 'running') return;
-    if (this.state.players.size < 2) return;
+    const requiredPlayers = this.debugSolo ? 1 : 2;
+    if (this.state.players.size < requiredPlayers) return;
 
     const dtSec = dtMs / 1000;
     const now = Date.now();
     gcExpiryMap(this.seenHitIds, now, 12000);
     const elapsedSec = (now - this.startedAt) / 1000;
     this.state.elapsedSec = elapsedSec;
+    this.updateDebugBot(now, dtSec);
     this.updatePlayerMovement(dtSec);
     if (this.isCoopMode) {
       this.updateCoopRevives(now);
@@ -2855,7 +3061,7 @@ class BattleSurvivalRoom extends Room {
       const curDx = Number(target.x || 0) - Number(enemy.x || 0);
       const curDy = Number(target.y || 0) - Number(enemy.y || 0);
       const curDist = Math.hypot(curDx, curDy);
-      if (curDist <= PLAYER_CONTACT_RADIUS) {
+      if (curDist <= getServerContactDamageRange(enemy.type)) {
         const contactKey = `${id}|${targetSid}`;
         const lastHit = this.pveContactAt.get(contactKey) || 0;
         if (now - lastHit >= 440) {
@@ -2953,7 +3159,12 @@ class BattleSurvivalRoom extends Room {
     client.send('pvp.profile', profile || { user_id: userId, name, mmr: 1000, wins: 0, losses: 0, matches: 0 });
     this.broadcastPvpProgress(client.sessionId, 0);
 
-    if (this.clients.length < 2) {
+    if (this.debugSolo && !this.isCoopMode) {
+      this.ensureDebugBot(client.sessionId);
+    }
+
+    const requiredClientCount = this.debugSolo ? 1 : 2;
+    if (this.clients.length < requiredClientCount) {
       client.send('match.waiting', { players: this.clients.length });
       if (this.isCoopMode) client.send('coop.stage', {
         stage: this.coopStage,
@@ -2965,7 +3176,9 @@ class BattleSurvivalRoom extends Room {
       const centerY = WORLD_H * 0.5;
       // Spawn at the center of each half: left quarter / right quarter.
       const spread = WORLD_W * 0.25;
-      const sorted = this.clients.map((x) => x.sessionId).sort();
+      const sorted = this.debugSolo
+        ? Array.from(this.state.players.keys()).sort()
+        : this.clients.map((x) => x.sessionId).sort();
       const leftSid = sorted[0] || '';
       const rightSid = sorted[1] || '';
       const left = this.state.players.get(leftSid);
@@ -3144,9 +3357,15 @@ class BattleSurvivalRoom extends Room {
         const alive = this.clients.map((x) => x.sessionId).filter((sid) => this.state.players.has(sid));
         if (alive.length === 0) this.finalizeMatch('', 'disconnect');
       } else {
-        const winnerSid = this.clients.map((x) => x.sessionId).find((sid) => sid !== client.sessionId) || '';
+        const contenderSids = this.debugSolo
+          ? Array.from(this.state.players.keys())
+          : this.clients.map((x) => x.sessionId);
+        const winnerSid = contenderSids.find((sid) => sid !== client.sessionId) || '';
         if (winnerSid) this.finalizeMatch(winnerSid, 'disconnect');
       }
+    }
+    if (this.debugSolo && !this.isCoopMode && this.clients.length === 0) {
+      this.removeDebugBot();
     }
     if (this.isCoopMode && this.state.phase === 'running' && reviveChanged) {
       this.pushCoopReviveStatus(true);
@@ -3155,6 +3374,7 @@ class BattleSurvivalRoom extends Room {
   }
 
   onDispose() {
+    this.removeDebugBot();
     if (this.isCoopMode && this.partyKey) {
       coopPartyStateMap.delete(this.partyKey);
     }
@@ -3604,15 +3824,22 @@ const gameServer = new Server({
 
 gameServer.define('battle', BattleRoom);
 gameServer.define('battle_survival', BattleSurvivalRoom);
+gameServer.define('battle_survival_debug', class BattleSurvivalDebugRoom extends BattleSurvivalRoom {
+  onCreate(options = {}) {
+    super.onCreate({ ...options, debug: 1 });
+  }
+});
 gameServer.define('battle_coop', class BattleCoopRoom extends BattleSurvivalRoom {
   onCreate(options = {}) {
     super.onCreate({ ...options, mode: 'coop' });
+  }
+}).filterBy(['partyKey']);
+gameServer.define('battle_coop_debug', class BattleCoopDebugRoom extends BattleSurvivalRoom {
+  onCreate(options = {}) {
+    super.onCreate({ ...options, mode: 'coop', debug: 1 });
   }
 }).filterBy(['partyKey']);
 
 gameServer.listen(PORT).then(() => {
   console.log(`[game-server:colyseus] listening on :${PORT}`);
 });
-
-
-

@@ -8,7 +8,6 @@ import GameOverScene from './scenes/GameOverScene.js';
 import RankingScene from './scenes/RankingScene.js';
 import ShopScene from './scenes/ShopScene.js';
 import CodexScene from './scenes/CodexScene.js';
-import PvpScene from './scenes/PvpScene.js';
 import PvpGameOverScene from './scenes/PvpGameOverScene.js';
 import { isMobileDevice } from './utils/device.js';
 
@@ -47,7 +46,7 @@ const config = {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH
   },
-  scene: [BootScene, PreloadScene, LobbyScene, ShopScene, CodexScene, PvpScene, GameScene, GameOverScene, PvpGameOverScene, RankingScene]
+  scene: [BootScene, PreloadScene, LobbyScene, ShopScene, CodexScene, GameScene, GameOverScene, PvpGameOverScene, RankingScene]
 };
 
 new Phaser.Game(config);

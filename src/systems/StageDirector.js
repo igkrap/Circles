@@ -124,7 +124,7 @@ export default class StageDirector {
           x = Phaser.Math.Between(70, b.width - 70);
           y = b.height - 24;
         }
-        scene.queueEnemySpawn(x, y, EnemyType.ELITE, 0.75);
+        scene.queueEnemySpawn(x, y, EnemyType.TANK, 0.75);
       }
       spawned = true;
     }
@@ -150,8 +150,8 @@ export default class StageDirector {
     if (this.stage >= 5 && this.stage % 5 === 0) {
       const b = scene.physics.world.bounds;
       if (this.stage >= 10) {
-        scene.queueEnemySpawn(b.width * 0.5 - 120, 100, EnemyType.ELITE, 1.0);
-        scene.queueEnemySpawn(b.width * 0.5 + 120, 100, EnemyType.ELITE, 1.0);
+        scene.queueEnemySpawn(b.width * 0.5 - 120, 100, EnemyType.TANK, 1.0);
+        scene.queueEnemySpawn(b.width * 0.5 + 120, 100, EnemyType.TANK, 1.0);
       }
       if (this.stage >= 15) {
         scene.queueEnemySpawn(b.width * 0.5 - 200, 118, EnemyType.TANK, 1.05);
@@ -214,7 +214,7 @@ export default class StageDirector {
 
     let eliteP = 0;
     if (stage >= 2) eliteP = Math.min(0.3, 0.05 + 0.016 * (stage - 2));
-    if (rr < eliteP) return EnemyType.ELITE;
+    if (rr < eliteP) return EnemyType.TANK;
     rr -= eliteP;
 
     let tankP = 0;
@@ -233,20 +233,20 @@ export default class StageDirector {
       if (r < 0.3) return EnemyType.SCOUT;
       if (r < 0.62) return EnemyType.NORMAL;
       if (r < 0.86) return EnemyType.TANK;
-      return EnemyType.ELITE;
+      return EnemyType.TANK;
     }
 
     if (stage <= 12) {
       if (r < 0.22) return EnemyType.SCOUT;
       if (r < 0.45) return EnemyType.NORMAL;
       if (r < 0.7) return EnemyType.TANK;
-      return EnemyType.ELITE;
+      return EnemyType.TANK;
     }
 
     if (r < 0.15) return EnemyType.SCOUT;
     if (r < 0.36) return EnemyType.NORMAL;
     if (r < 0.64) return EnemyType.TANK;
-    if (r < 0.92) return EnemyType.ELITE;
+    if (r < 0.92) return EnemyType.TANK;
     return EnemyType.MINIBOSS;
   }
 

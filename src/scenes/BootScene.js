@@ -39,11 +39,12 @@ function consumeDebugLaunchFromUrl() {
       enabled: true,
       stage,
       forceBoss: parseBoolParam(q.get('boss'), true),
-      forceDash: parseBoolParam(q.get('dash'), true)
+      forceDash: parseBoolParam(q.get('dash'), true),
+      solo: parseBoolParam(q.get('solo'), false)
     }
   };
 
-  ['debug', 'mode', 'stage', 'party', 'boss', 'dash'].forEach((k) => q.delete(k));
+  ['debug', 'mode', 'stage', 'party', 'boss', 'dash', 'solo'].forEach((k) => q.delete(k));
   const cleanQuery = q.toString();
   const cleanUrl = `${url.pathname}${cleanQuery ? `?${cleanQuery}` : ''}${url.hash || ''}`;
   const prevUrl = `${url.pathname}${url.search}${url.hash || ''}`;

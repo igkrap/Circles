@@ -13,8 +13,10 @@ export class FloatingText {
       duration = 600,
       rise = 22,
       stroke = '#000000',
-      strokeThickness = 3
+      strokeThickness = 3,
+      depth = 2600
     } = opts;
+    const safeDepth = Number.isFinite(depth) ? depth : 2600;
 
     this.scene = scene;
     this.textObj = scene.add.text(x, y, text, {
@@ -23,7 +25,7 @@ export class FloatingText {
       color,
       stroke,
       strokeThickness
-    }).setOrigin(0.5, 0.5);
+    }).setOrigin(0.5, 0.5).setDepth(safeDepth);
 
     scene.tweens.add({
       targets: this.textObj,

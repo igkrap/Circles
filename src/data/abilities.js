@@ -36,6 +36,27 @@ export const ACTIVE_KEYS = [
 
 export const PASSIVE_KEYS = ABILITY_KEYS.filter((k) => !ACTIVE_KEYS.includes(k));
 
+export const ABILITY_ICON_FILE_BY_KEY = {
+  XPGain: 'trait_01_passive_xp.png',
+  ATK: 'trait_02_passive_attack.png',
+  FIRERATE: 'trait_03_passive_attack_speed.png',
+  MOVESPD: 'trait_04_passive_move_speed.png',
+  SHIELD: 'trait_05_passive_shield.png',
+  HP_REGEN: 'trait_06_passive_hp_regen.png',
+  MAX_HP: 'trait_07_passive_max_hp.png',
+  CRIT_CHANCE: 'trait_08_passive_crit.png',
+  GOLD_GAIN: 'trait_09_passive_gold.png',
+  SHOCKWAVE: 'trait_10_active_shockwave.png',
+  LASER: 'trait_11_active_laser.png',
+  GRENADE: 'trait_12_active_grenade.png',
+  FWD_SLASH: 'trait_13_active_forward_slash.png',
+  DASH: 'trait_14_active_dash.png',
+  SPIN_SLASH: 'trait_15_active_spin_slash.png',
+  CHAIN_LIGHTNING: 'trait_16_active_chain_lightning.png',
+  BLIZZARD: 'trait_17_active_blizzard.png',
+  FIRE_BOLT: 'trait_18_active_fire_bolt.png'
+};
+
 export const ABILITY_META = {
   XPGain: { name: '경험치 획득', desc: '랭크당 경험치 획득 +20%', type: 'passive' },
   ATK: { name: '공격력', desc: '랭크당 공격력 +10% (최대 +50%)', type: 'passive' },
