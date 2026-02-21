@@ -13,6 +13,8 @@ export default class PreloadScene extends Phaser.Scene {
     this.load.audio('bgm_main', 'assets/BGM_MAIN.mp3');
     this.load.audio('bgm_main1', 'assets/BGM_MAIN1.mp3');
     this.load.audio('bgm_main2', 'assets/BGM_MAIN2.mp3');
+    this.load.audio('bgm_desert_01', 'assets/BGM_DESERT_01.wav');
+    this.load.audio('bgm_desert_02', 'assets/BGM_DESERT_02.wav');
     this.load.audio('sfx_enemy_hit', 'assets/SFX_ENEMYHIT.mp3');
     this.load.audio('sfx_enemy_death', 'assets/SFX_ENEMYDEATH.wav');
     this.load.audio('sfx_fire', 'assets/SFX_FIRE.wav');
@@ -23,6 +25,12 @@ export default class PreloadScene extends Phaser.Scene {
     this.load.audio('sfx_clash', 'assets/SFX_CLASH.wav');
     this.load.audio('sfx_battle', 'assets/SFX_BATTLE.mp3');
     this.load.audio('sfx_thunder', 'assets/SFX_THUNDER.wav');
+    for (let i = 1; i <= 17; i += 1) {
+      this.load.image(`map_desert_tile_${i}`, `assets/maps/desert/Tile_${i}.png`);
+    }
+    for (let i = 1; i <= 20; i += 1) {
+      this.load.image(`map_desert_object_${i}`, `assets/maps/desert/Object_${i}.png`);
+    }
     this.load.image('img_enemy_boss_gif', 'assets/img_enemy_boss.gif');
     this.load.spritesheet('spr_enemy_boss', 'assets/img_enemy_boss_sheet.png', { frameWidth: 100, frameHeight: 100 });
     this.load.spritesheet('spr_player', 'assets/img_player.png', { frameWidth: 192, frameHeight: 192 });
@@ -439,6 +447,19 @@ export default class PreloadScene extends Phaser.Scene {
       g.destroy();
     };
 
+    const makeDesertDustTile = (key, size = 256) => {
+      const g = this.make.graphics({ x: 0, y: 0, add: false });
+      for (let i = 0; i < 140; i += 1) {
+        const x = Phaser.Math.Between(0, size);
+        const y = Phaser.Math.Between(0, size);
+        const r = Phaser.Math.FloatBetween(2, 9);
+        g.fillStyle(0xffffff, Phaser.Math.FloatBetween(0.015, 0.045));
+        g.fillCircle(x, y, r);
+      }
+      g.generateTexture(key, size, size);
+      g.destroy();
+    };
+
     const makeTextureFromSheetFrame = (dstKey, sheetKey, frameIndex = 0) => {
       const frame = this.textures.getFrame(sheetKey, frameIndex);
       if (!frame) return false;
@@ -477,6 +498,7 @@ export default class PreloadScene extends Phaser.Scene {
     };
 
     makeArenaTile('tex_bg_tile', 256);
+    makeDesertDustTile('tex_bg_dust_desert', 256);
     makeSoftShadow('tex_shadow', 52, 22);
     makeAuraRing('tex_aura_ring', 72);
     makeFlameParticle('tex_flame', 18);
@@ -491,6 +513,7 @@ export default class PreloadScene extends Phaser.Scene {
     makeOrb('tex_enemy_elite', 15, 0xb96bff, 0x34124d, 0xb96bff);
 
     makeOrb('tex_boss', 30, 0xff3bd7, 0xffffff, 0xff3bd7);
+
     if (!makeTextureFromSheetFrame('tex_gold', 'spr_gold_coin', 0)) {
       makeGoldCoin('tex_gold', 22);
     }

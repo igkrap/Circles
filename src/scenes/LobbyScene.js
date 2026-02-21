@@ -1895,6 +1895,7 @@ export default class LobbyScene extends Phaser.Scene {
       const bh = modeRowH;
       const rowX = modeCardX;
       const rowLeft = rowX - bw * 0.5;
+      const rowRight = rowX + bw * 0.5;
       const shadow = this.add.rectangle(rowX, y + Math.round(1 * uiScale), bw + Math.round(2 * uiScale), bh + Math.round(3 * uiScale), enabled ? modeAccent : 0x24364f, enabled ? 0.05 : 0.03)
         .setBlendMode(Phaser.BlendModes.ADD);
       const bg = this.add.rectangle(rowX, y, bw, bh, enabled ? 0x1b3453 : 0x1d2b43, 0.94)
@@ -1911,6 +1912,13 @@ export default class LobbyScene extends Phaser.Scene {
         fontSize: `${Math.max(11, Math.round(12 * uiScale))}px`,
         color: enabled ? '#9ab3d2' : '#778ba8'
       }).setOrigin(0, 0.5);
+      const lockTx = !enabled
+        ? this.add.text(rowRight - Math.round(16 * uiScale), y, '🔒', {
+          fontFamily: FONT_KR,
+          fontSize: `${Math.max(15, Math.round(18 * uiScale))}px`,
+          color: '#b5c5dd'
+        }).setOrigin(1, 0.5)
+        : null;
       if (enabled) {
         bg.on('pointerover', () => {
           bg.setFillStyle(0x24476e, 0.97);
@@ -1927,7 +1935,8 @@ export default class LobbyScene extends Phaser.Scene {
         bg.on('pointerdown', onClick);
       }
       modeRoot.add([shadow, bg, accent, tx, sx]);
-      return { bg, tx, sx, accent };
+      if (lockTx) modeRoot.add(lockTx);
+      return { bg, tx, sx, accent, lockTx };
     };
 
     const topRowY = modeHeaderY + modeHeaderH * 0.5 + Math.round(18 * uiScale) + modeRowH * 0.5;
@@ -1946,15 +1955,7 @@ export default class LobbyScene extends Phaser.Scene {
         serverBaseUrl: authSession?.serverBaseUrl
       });
     }, true);
-    mkModeBtn(y2, '디펜스 모드', '중앙 코어를 적에게서 방어', () => {
-      bgm.stop();
-      this.scene.start('Game', {
-        mode: 'defense',
-        token: authSession?.token,
-        user: authSession?.user,
-        serverBaseUrl: authSession?.serverBaseUrl
-      });
-    }, true);
+    mkModeBtn(y2, '디펜스 모드', '준비 중', () => {}, false);
     mkModeBtn(y3, '협동 모드', '2인 서버 기반 협동 플레이', () => {
       if (!authSession?.token) {
         authStatus.setText('협동 입장 전 구글 로그인이 필요합니다.');

@@ -43,6 +43,7 @@ export default class GameOverScene extends Phaser.Scene {
     this.finalTimeSec = data?.timeSec ?? 0;
     this.finalTotalScore = data?.totalScore ?? 0;
     this.mode = String(data?.mode ?? 'survival');
+    this.biome = String(data?.biome || 'default').toLowerCase();
     this.pvp = data?.pvp ?? null;
     this.reason = String(data?.reason ?? 'player_down');
   }
@@ -222,6 +223,7 @@ export default class GameOverScene extends Phaser.Scene {
         bgm.stop();
         this.scene.start('Game', {
           mode: this.mode,
+          biome: this.biome,
           token: this.pvp?.token,
           serverBaseUrl: this.pvp?.serverBaseUrl,
           user: this.pvp?.user,

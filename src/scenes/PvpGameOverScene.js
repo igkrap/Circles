@@ -42,6 +42,7 @@ export default class PvpGameOverScene extends Phaser.Scene {
     this.result = String(data?.result || 'lose');
     this.reason = String(data?.reason || 'hp_zero');
     this.profile = data?.profile || null;
+    this.biome = String(data?.biome || 'default').toLowerCase();
     this.pvp = data?.pvp || null;
   }
 
@@ -173,6 +174,7 @@ export default class PvpGameOverScene extends Phaser.Scene {
       () => {
         this.scene.start('Game', {
           mode: 'pvp',
+          biome: this.biome,
           token: this.pvp?.token,
           serverBaseUrl: this.pvp?.serverBaseUrl,
           user: this.pvp?.user,

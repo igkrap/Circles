@@ -82,6 +82,8 @@ const CONTACT_DAMAGE_PLAYER_RADIUS_SCALE = 0.72;
 const CONTACT_DAMAGE_ENEMY_RADIUS_SCALE = 0.72;
 const FIELD_COIN_SCALE = 1.2;
 const FIELD_COIN_PICKUP_RADIUS = 9 * FIELD_COIN_SCALE;
+const WORLD_BIOME_DEFAULT = 'default';
+const WORLD_BIOME_DESERT = 'desert';
 
 function getEnemyBodyRadiusByType(type) {
   const baseRadius = (type === EnemyType.BOSS) ? 28
@@ -108,6 +110,12 @@ function getMmrTierLabel(mmr) {
   if (v >= 1300) return 'Gold';
   if (v >= 1150) return 'Silver';
   return 'Bronze';
+}
+
+function sanitizeWorldBiome(rawBiome) {
+  const biome = String(rawBiome || '').trim().toLowerCase();
+  if (biome === WORLD_BIOME_DESERT) return biome;
+  return WORLD_BIOME_DEFAULT;
 }
 
 class GoldPickup extends Phaser.Physics.Arcade.Sprite {
@@ -225,13 +233,26 @@ export default class GameScene extends Phaser.Scene {
       }
     }
     const debugRaw = data?.debug && typeof data.debug === 'object' ? data.debug : null;
+    const hasExplicitBiome = typeof data?.biome === 'string' && String(data.biome).trim().length > 0;
+    const hasDebugBiome = typeof debugRaw?.biome === 'string' && String(debugRaw.biome).trim().length > 0;
+    const debugBiome = sanitizeWorldBiome(debugRaw?.biome);
+    const explicitBiome = sanitizeWorldBiome(data?.biome);
+    const requestedBiome = explicitBiome !== WORLD_BIOME_DEFAULT
+      ? explicitBiome
+      : (hasDebugBiome ? debugBiome : WORLD_BIOME_DEFAULT);
+    if (this.runMode === 'survival' && !hasExplicitBiome && !hasDebugBiome) {
+      this.worldBiome = Math.random() < 0.5 ? WORLD_BIOME_DEFAULT : WORLD_BIOME_DESERT;
+    } else {
+      this.worldBiome = requestedBiome;
+    }
     const debugStage = Math.floor(Number(debugRaw?.stage || 0));
     this.debugRun = {
       enabled: !!debugRaw?.enabled,
       stage: Number.isFinite(debugStage) ? Phaser.Math.Clamp(debugStage, 0, STAGE_MODE_FINAL_STAGE) : 0,
       forceBoss: !!debugRaw?.forceBoss,
       forceDash: !!debugRaw?.forceDash,
-      solo: !!debugRaw?.solo
+      solo: !!debugRaw?.solo,
+      biome: debugBiome
     };
     if (this.debugRun.enabled && this.debugRun.forceBoss && this.debugRun.stage <= 0) {
       this.debugRun.stage = 5;
@@ -240,7 +261,11 @@ export default class GameScene extends Phaser.Scene {
 
   create() {
     if (!this.runMode) this.runMode = 'survival';
+    if (!this.worldBiome) this.worldBiome = WORLD_BIOME_DEFAULT;
     this.pauseUi = null;
+    this.bgDustLayer = null;
+    this.bgDecor = null;
+    this.bgEdgeLayer = null;
     this.pvpRoom = null;
     this.pvpClient = null;
     this.pvpSelfSid = '';
@@ -287,7 +312,13 @@ export default class GameScene extends Phaser.Scene {
     this.vfxQuality = this.isSafariTarget ? 0.58 : 1.0;
 
     this.sound.stopAll();
-    const gameBgmKeys = ['bgm_main1', 'bgm_main2', 'bgm_main'].filter((k) => this.cache.audio.exists(k));
+    const defaultGameBgmKeys = ['bgm_main1', 'bgm_main2', 'bgm_main'];
+    const desertGameBgmKeys = ['bgm_desert_01', 'bgm_desert_02'];
+    const preferredKeys = this.worldBiome === WORLD_BIOME_DESERT ? desertGameBgmKeys : defaultGameBgmKeys;
+    let gameBgmKeys = preferredKeys.filter((k) => this.cache.audio.exists(k));
+    if (gameBgmKeys.length <= 0 && this.worldBiome === WORLD_BIOME_DESERT) {
+      gameBgmKeys = defaultGameBgmKeys.filter((k) => this.cache.audio.exists(k));
+    }
     const pickedBgmKey = gameBgmKeys.length > 0
       ? Phaser.Utils.Array.GetRandom(gameBgmKeys)
       : 'bgm_main';
@@ -461,7 +492,10 @@ export default class GameScene extends Phaser.Scene {
       this.fxParticles?.destroy();
       this.mobileUi?.root?.destroy(true);
       this.bgLayer?.destroy();
+      this.bgDustLayer?.destroy();
       this.bgNebula?.destroy();
+      this.bgEdgeLayer?.destroy();
+      this.bgDecor?.destroy(true);
       this.playerVisual?.destroy();
       this.playerShadow?.destroy();
       this.playerAura?.destroy();
@@ -526,7 +560,7 @@ export default class GameScene extends Phaser.Scene {
     return { x: this.player.x, y: this.player.y };
   }
 
-  createWorldBackdrop(worldW, worldH) {
+  createDefaultBackdrop(worldW, worldH) {
     this.cameras.main.setBackgroundColor(0x050c1d);
     this.bgLayer = this.add.tileSprite(worldW * 0.5, worldH * 0.5, worldW, worldH, 'tex_bg_tile');
     this.bgLayer.setDepth(-20);
@@ -540,6 +574,182 @@ export default class GameScene extends Phaser.Scene {
       const y = worldH * (0.32 + idx * 0.2);
       this.bgNebula.fillCircle(x, y, 210 + idx * 55);
     });
+  }
+
+  createDesertBackdrop(worldW, worldH) {
+    const tileKey = (n) => `map_desert_tile_${n}`;
+    const objectKey = (n) => `map_desert_object_${n}`;
+    const hasTile = (n) => this.textures.exists(tileKey(n));
+    const hasObject = (n) => this.textures.exists(objectKey(n));
+    if (!hasTile(5)) {
+      this.createDefaultBackdrop(worldW, worldH);
+      return;
+    }
+
+    this.cameras.main.setBackgroundColor(0x9a6b2f);
+    this.bgLayer = this.add.tileSprite(worldW * 0.5, worldH * 0.5, worldW, worldH, tileKey(5));
+    this.bgLayer.setDepth(-26);
+    this.bgLayer.setAlpha(1);
+
+    if (this.textures.exists('tex_bg_dust_desert')) {
+      this.bgDustLayer = this.add.tileSprite(worldW * 0.5, worldH * 0.5, worldW, worldH, 'tex_bg_dust_desert');
+      this.bgDustLayer.setDepth(-25);
+      this.bgDustLayer.setAlpha(0.2);
+      this.bgDustLayer.setBlendMode(Phaser.BlendModes.ADD);
+    }
+
+    this.bgNebula = this.add.graphics().setDepth(-24);
+    const duneBands = [
+      { x: 0.2, y: 0.2, w: 980, h: 430, color: 0xf2ce81, alpha: 0.08 },
+      { x: 0.53, y: 0.56, w: 1400, h: 540, color: 0xd9a35e, alpha: 0.09 },
+      { x: 0.83, y: 0.78, w: 960, h: 420, color: 0xbd7f3f, alpha: 0.07 }
+    ];
+    duneBands.forEach((band) => {
+      this.bgNebula.fillStyle(band.color, band.alpha);
+      this.bgNebula.fillEllipse(worldW * band.x, worldH * band.y, band.w, band.h);
+    });
+
+    this.bgDecor = this.add.container(0, 0).setDepth(-23);
+    const tileSize = 256;
+    const cols = Math.ceil(worldW / tileSize);
+    const rows = Math.ceil(worldH / tileSize);
+    const centerX = worldW * 0.5;
+    const centerY = worldH * 0.5;
+    const useTile = (preferred, fallback = 5) => (hasTile(preferred) ? tileKey(preferred) : tileKey(fallback));
+    const placeTile = (col, row, key, alpha = 1) => {
+      if (!key || !this.textures.exists(key)) return null;
+      const tile = this.add.image(col * tileSize, row * tileSize, key).setOrigin(0, 0).setAlpha(alpha);
+      this.bgDecor.add(tile);
+      return tile;
+    };
+
+    const topLeft = useTile(1);
+    const top = useTile(2);
+    const topRight = useTile(3);
+    const right = useTile(4);
+    const left = useTile(6);
+    const bottomRight = useTile(7);
+    const bottom = useTile(8);
+    const bottomLeft = useTile(9);
+
+    placeTile(0, 0, topLeft);
+    placeTile(cols - 1, 0, topRight);
+    placeTile(0, rows - 1, bottomLeft);
+    placeTile(cols - 1, rows - 1, bottomRight);
+    for (let col = 1; col < cols - 1; col += 1) {
+      placeTile(col, 0, top);
+      placeTile(col, rows - 1, bottom);
+    }
+    for (let row = 1; row < rows - 1; row += 1) {
+      placeTile(0, row, left);
+      placeTile(cols - 1, row, right);
+    }
+
+    const pack = (ids) => ids
+      .map((n) => objectKey(n))
+      .filter((key) => this.textures.exists(key));
+    const objectsRock = pack([1, 2, 3, 4, 7, 8]);
+    const objectsFlora = pack([5, 6, 9, 10, 11, 12, 13, 14]);
+    const objectsCactus = pack([15, 16]);
+    const objectsLarge = pack([17, 18, 19, 20]);
+    const occupiedDecor = [];
+    const getDecorRadius = (key, scale) => {
+      const frame = this.textures.getFrame(key);
+      const srcW = Math.max(8, Number(frame?.width || frame?.cutWidth || 256));
+      const srcH = Math.max(8, Number(frame?.height || frame?.cutHeight || 256));
+      const scaledW = srcW * scale;
+      const scaledH = srcH * scale;
+      const isTall = srcH > srcW * 1.3;
+      const baseR = isTall
+        ? scaledW * 0.38
+        : Math.min(scaledW, scaledH) * 0.44;
+      const maxR = srcW >= 700 ? 210 : 140;
+      return Phaser.Math.Clamp(baseR, 20, maxR);
+    };
+    const canPlaceDecor = (x, y, radius, gap) => {
+      for (let i = 0; i < occupiedDecor.length; i += 1) {
+        const o = occupiedDecor[i];
+        const minDist = radius + o.radius + gap;
+        if (Phaser.Math.Distance.Between(x, y, o.x, o.y) < minDist) return false;
+      }
+      return true;
+    };
+
+    const spawnDecor = (keys, count, opts = {}) => {
+      if (!Array.isArray(keys) || keys.length <= 0 || count <= 0) return;
+      const scaleMin = Number.isFinite(opts.scaleMin) ? opts.scaleMin : 0.8;
+      const scaleMax = Number.isFinite(opts.scaleMax) ? opts.scaleMax : 1.2;
+      const alphaMin = Number.isFinite(opts.alphaMin) ? opts.alphaMin : 0.56;
+      const alphaMax = Number.isFinite(opts.alphaMax) ? opts.alphaMax : 0.88;
+      const safeRadius = Number.isFinite(opts.safeRadius) ? opts.safeRadius : 280;
+      const separationGap = Number.isFinite(opts.gap) ? opts.gap : 18;
+      const maxTries = Math.max(count * 28, 120);
+      let placed = 0;
+      let tries = 0;
+      while (placed < count && tries < maxTries) {
+        tries += 1;
+        const key = Phaser.Utils.Array.GetRandom(keys);
+        const scale = Phaser.Math.FloatBetween(scaleMin, scaleMax);
+        const radius = getDecorRadius(key, scale);
+        const margin = Math.max(90, radius + 26);
+        const x = Phaser.Math.Between(margin, Math.max(margin + 1, worldW - margin));
+        const y = Phaser.Math.Between(margin, Math.max(margin + 1, worldH - margin));
+        if (Phaser.Math.Distance.Between(x, y, centerX, centerY) < safeRadius + radius) continue;
+        if (!canPlaceDecor(x, y, radius, separationGap)) continue;
+        const sprite = this.add.image(x, y, key);
+        sprite.setOrigin(0.5, Number.isFinite(opts.originY) ? opts.originY : 0.88);
+        sprite.setScale(scale);
+        sprite.setAlpha(Phaser.Math.FloatBetween(alphaMin, alphaMax));
+        sprite.setRotation(Phaser.Math.FloatBetween(-0.06, 0.06));
+        if (opts.flip !== false && Math.random() < 0.5) sprite.setFlipX(true);
+        this.bgDecor.add(sprite);
+        occupiedDecor.push({ x, y, radius });
+        placed += 1;
+      }
+    };
+
+    const densityMul = Phaser.Math.Clamp((worldW * worldH) / (4800 * 3000), 0.7, 1.35);
+    spawnDecor(objectsRock, Math.round(56 * densityMul), {
+      scaleMin: 0.74,
+      scaleMax: 1.28,
+      alphaMin: 0.56,
+      alphaMax: 0.9,
+      safeRadius: 340,
+      gap: 18
+    });
+    spawnDecor(objectsFlora, Math.round(44 * densityMul), {
+      scaleMin: 0.76,
+      scaleMax: 1.32,
+      alphaMin: 0.58,
+      alphaMax: 0.9,
+      safeRadius: 300,
+      gap: 16
+    });
+    spawnDecor(objectsCactus, Math.round(28 * densityMul), {
+      scaleMin: 0.74,
+      scaleMax: 1.12,
+      alphaMin: 0.58,
+      alphaMax: 0.84,
+      safeRadius: 360,
+      gap: 20
+    });
+    spawnDecor(objectsLarge, Math.round(14 * densityMul), {
+      scaleMin: 0.56,
+      scaleMax: 0.96,
+      alphaMin: 0.45,
+      alphaMax: 0.72,
+      safeRadius: 440,
+      originY: 0.96,
+      gap: 32
+    });
+  }
+
+  createWorldBackdrop(worldW, worldH) {
+    if (this.worldBiome === WORLD_BIOME_DESERT) {
+      this.createDesertBackdrop(worldW, worldH);
+      return;
+    }
+    this.createDefaultBackdrop(worldW, worldH);
   }
 
   setupPvpOpponent() {
@@ -606,6 +816,7 @@ export default class GameScene extends Phaser.Scene {
       fontSize: '14px',
       color: '#8fa4cd'
     }).setOrigin(0.5).setScrollFactor(0).setDepth(1200);
+    this.applyHudTextStroke(this.pvpStatusText, 3);
 
     this.physics.add.overlap(this.bullets, body, (bullet) => this.onBulletHitPvpOpponent(bullet));
   }
@@ -730,6 +941,7 @@ export default class GameScene extends Phaser.Scene {
           result: win ? 'win' : 'lose',
           reason: String(msg?.reason || 'hp_zero'),
           profile: this.pvpProfile,
+          biome: this.worldBiome,
           pvp: {
             token: this.pvpToken,
             serverBaseUrl: this.pvpServerBaseUrl,
@@ -1640,12 +1852,14 @@ export default class GameScene extends Phaser.Scene {
         fontSize: '13px',
         color: '#eaf0ff'
       }).setOrigin(0, 0).setScrollFactor(0);
+      this.applyHudTextStroke(num, 2);
       const icon = this.add.image(0, 0, 'tex_gold').setVisible(false).setScrollFactor(0);
       const cd = this.add.text(0, 0, '', {
         fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
         fontSize: '12px',
         color: '#c9d4f2'
       }).setOrigin(0.5).setScrollFactor(0);
+      this.applyHudTextStroke(cd, 2);
       const cdOverlay = this.add.graphics().setScrollFactor(0);
 
       btn.on('pointerdown', (p) => {
@@ -2020,6 +2234,11 @@ export default class GameScene extends Phaser.Scene {
     this.tweens.add({ targets: g, alpha: 0, duration, onComplete: () => g.destroy() });
   }
 
+  applyHudTextStroke(textObj, thickness = 3, color = '#0a111b') {
+    if (!textObj || typeof textObj.setStroke !== 'function') return;
+    textObj.setStroke(color, Math.max(0, Math.floor(Number(thickness) || 0)));
+  }
+
   createHud() {
     this.ui = {};
     const fontDisplay = HUD_FONT_DISPLAY;
@@ -2032,6 +2251,7 @@ export default class GameScene extends Phaser.Scene {
     this.ui.goldPanel = this.add.rectangle(0, 0, 144, 30, HUD_COLOR_PANEL, 0.78).setOrigin(0, 0).setScrollFactor(0).setVisible(false);
     this.ui.goldPanel.setStrokeStyle(1, HUD_COLOR_PANEL_STROKE, 0.95);
     this.ui.gold = this.add.text(0, 0, '', { fontFamily: fontDisplay, fontSize: '16px', color: HUD_COLOR_GOLD }).setScrollFactor(0);
+    this.applyHudTextStroke(this.ui.gold, 4, '#2c1a08');
     this.ui.coin = this.makeGoldUiIcon(0, 0).setScale(0.96).setScrollFactor(0);
 
     this.ui.minimapBg = this.add.rectangle(0, 0, 122, 84, HUD_COLOR_PANEL_DARK, 0.84).setOrigin(0, 0).setScrollFactor(0);
@@ -2197,6 +2417,27 @@ export default class GameScene extends Phaser.Scene {
       this.coopRevivePointerUpHandler = () => this.setCoopReviveHoldSource('pointer', false);
       this.input.on('pointerup', this.coopRevivePointerUpHandler);
     }
+
+    [
+      this.ui.stage,
+      this.ui.stageSub,
+      this.ui.modeObjective,
+      this.ui.time,
+      this.ui.ping,
+      this.ui.bossHpLabel,
+      this.ui.hp,
+      this.ui.shield,
+      this.ui.synergy,
+      this.ui.reviveLabel,
+      this.ui.reviveHint
+    ].forEach((t) => this.applyHudTextStroke(t, 3));
+    this.ui.skillSlots.forEach((slot) => {
+      this.applyHudTextStroke(slot.num, 3);
+      this.applyHudTextStroke(slot.icon, 3);
+      this.applyHudTextStroke(slot.rank, 3);
+      this.applyHudTextStroke(slot.cdText, 3);
+    });
+    this.ui.traitSlots.forEach((slot) => this.applyHudTextStroke(slot.rank, 3));
 
     const hudDepth = 1000;
     [
@@ -2736,6 +2977,10 @@ export default class GameScene extends Phaser.Scene {
       const cam = this.cameras.main;
       this.bgLayer.tilePositionX = cam.scrollX * 0.22;
       this.bgLayer.tilePositionY = cam.scrollY * 0.22;
+      if (this.bgDustLayer) {
+        this.bgDustLayer.tilePositionX = cam.scrollX * 0.34 + this.elapsedMs * 0.02;
+        this.bgDustLayer.tilePositionY = cam.scrollY * 0.18 + this.elapsedMs * 0.004;
+      }
     }
     if (this.bgNebula) {
       this.bgNebula.setAlpha(0.9 + Math.sin(this.elapsedMs * 0.00035) * 0.06);
@@ -3572,6 +3817,7 @@ export default class GameScene extends Phaser.Scene {
     const restartMode = this.isCoopMode ? 'coop' : this.runMode;
     const restartBtn = makeButton('다시 시작', () => this.scene.restart({
       mode: restartMode,
+      biome: this.worldBiome,
       token: this.pvpToken,
       serverBaseUrl: this.pvpServerBaseUrl,
       user: this.pvpUser,
@@ -5436,6 +5682,7 @@ export default class GameScene extends Phaser.Scene {
         result: 'lose',
         reason,
         profile: this.pvpProfile,
+        biome: this.worldBiome,
         pvp: {
           token: this.pvpToken,
           serverBaseUrl: this.pvpServerBaseUrl,
@@ -5482,6 +5729,7 @@ export default class GameScene extends Phaser.Scene {
       timeSec,
       totalScore,
       mode: this.isPvpMode ? (this.isCoopMode ? 'coop' : 'pvp') : this.runMode,
+      biome: this.worldBiome,
       pvp: this.pvpToken ? {
         token: this.pvpToken,
         serverBaseUrl: this.pvpServerBaseUrl,

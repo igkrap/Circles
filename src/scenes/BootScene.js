@@ -15,6 +15,12 @@ function sanitizeMode(rawMode) {
   return 'survival';
 }
 
+function sanitizeBiome(rawBiome) {
+  const biome = String(rawBiome || '').trim().toLowerCase();
+  if (biome === 'desert') return biome;
+  return 'default';
+}
+
 function consumeDebugLaunchFromUrl() {
   if (typeof window === 'undefined' || typeof window.location === 'undefined') return null;
   let url;
@@ -27,6 +33,7 @@ function consumeDebugLaunchFromUrl() {
   if (!parseBoolParam(q.get('debug'), false)) return null;
 
   const mode = sanitizeMode(q.get('mode'));
+  const biome = sanitizeBiome(q.get('biome') || q.get('map'));
   const stageRaw = Number(q.get('stage'));
   const stage = Number.isFinite(stageRaw)
     ? Phaser.Math.Clamp(Math.floor(stageRaw), 1, 20)
@@ -34,17 +41,19 @@ function consumeDebugLaunchFromUrl() {
 
   const launchData = {
     mode,
+    biome,
     partyKey: String(q.get('party') || '').trim(),
     debug: {
       enabled: true,
       stage,
       forceBoss: parseBoolParam(q.get('boss'), true),
       forceDash: parseBoolParam(q.get('dash'), true),
-      solo: parseBoolParam(q.get('solo'), false)
+      solo: parseBoolParam(q.get('solo'), false),
+      biome
     }
   };
 
-  ['debug', 'mode', 'stage', 'party', 'boss', 'dash', 'solo'].forEach((k) => q.delete(k));
+  ['debug', 'mode', 'stage', 'party', 'boss', 'dash', 'solo', 'biome', 'map'].forEach((k) => q.delete(k));
   const cleanQuery = q.toString();
   const cleanUrl = `${url.pathname}${cleanQuery ? `?${cleanQuery}` : ''}${url.hash || ''}`;
   const prevUrl = `${url.pathname}${url.search}${url.hash || ''}`;
