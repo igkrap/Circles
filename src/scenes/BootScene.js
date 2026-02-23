@@ -19,6 +19,7 @@ function sanitizeBiome(rawBiome) {
   const biome = String(rawBiome || '').trim().toLowerCase();
   if (biome === 'desert') return biome;
   if (biome === 'forest') return biome;
+  if (biome === 'snow') return biome;
   return 'default';
 }
 

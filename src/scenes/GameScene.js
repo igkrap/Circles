@@ -85,6 +85,7 @@ const FIELD_COIN_PICKUP_RADIUS = 9 * FIELD_COIN_SCALE;
 const WORLD_BIOME_DEFAULT = 'default';
 const WORLD_BIOME_DESERT = 'desert';
 const WORLD_BIOME_FOREST = 'forest';
+const WORLD_BIOME_SNOW = 'snow';
 
 function getEnemyBodyRadiusByType(type) {
   const baseRadius = (type === EnemyType.BOSS) ? 28
@@ -117,6 +118,7 @@ function sanitizeWorldBiome(rawBiome) {
   const biome = String(rawBiome || '').trim().toLowerCase();
   if (biome === WORLD_BIOME_DESERT) return biome;
   if (biome === WORLD_BIOME_FOREST) return biome;
+  if (biome === WORLD_BIOME_SNOW) return biome;
   return WORLD_BIOME_DEFAULT;
 }
 
@@ -246,7 +248,8 @@ export default class GameScene extends Phaser.Scene {
       this.worldBiome = Phaser.Utils.Array.GetRandom([
         WORLD_BIOME_DEFAULT,
         WORLD_BIOME_DESERT,
-        WORLD_BIOME_FOREST
+        WORLD_BIOME_FOREST,
+        WORLD_BIOME_SNOW
       ]);
     } else {
       this.worldBiome = requestedBiome;
@@ -321,9 +324,12 @@ export default class GameScene extends Phaser.Scene {
     const defaultGameBgmKeys = ['bgm_main1', 'bgm_main2', 'bgm_main'];
     const desertGameBgmKeys = ['bgm_desert_01', 'bgm_desert_02'];
     const forestGameBgmKeys = ['bgm_forest_01', 'bgm_forest_02'];
+    const snowGameBgmKeys = ['bgm_snow_01', 'bgm_snow_02'];
     const preferredKeys = this.worldBiome === WORLD_BIOME_DESERT
       ? desertGameBgmKeys
-      : (this.worldBiome === WORLD_BIOME_FOREST ? forestGameBgmKeys : defaultGameBgmKeys);
+      : (this.worldBiome === WORLD_BIOME_FOREST
+        ? forestGameBgmKeys
+        : (this.worldBiome === WORLD_BIOME_SNOW ? snowGameBgmKeys : defaultGameBgmKeys));
     let gameBgmKeys = preferredKeys.filter((k) => this.cache.audio.exists(k));
     if (gameBgmKeys.length <= 0 && this.worldBiome !== WORLD_BIOME_DEFAULT) {
       gameBgmKeys = defaultGameBgmKeys.filter((k) => this.cache.audio.exists(k));
@@ -874,7 +880,137 @@ export default class GameScene extends Phaser.Scene {
     });
   }
 
+  createSnowBackdrop(worldW, worldH) {
+    const tileKey = (n) => `map_snow_tile_${n}`;
+    const objectKey = (n) => `map_snow_object_${n}`;
+    const hasTile = (n) => this.textures.exists(tileKey(n));
+    const baseTile = hasTile(5)
+      ? tileKey(5)
+      : ([1, 2, 3, 4, 6].map((n) => tileKey(n)).find((k) => this.textures.exists(k)) || null);
+    if (!baseTile) {
+      this.createDefaultBackdrop(worldW, worldH);
+      return;
+    }
+
+    this.cameras.main.setBackgroundColor(0x7897be);
+    this.bgLayer = this.add.tileSprite(worldW * 0.5, worldH * 0.5, worldW, worldH, baseTile);
+    this.bgLayer.setDepth(-26);
+    this.bgLayer.setAlpha(0.88);
+    this.bgLayer.setTint(0xc7d8eb);
+
+    this.bgNebula = this.add.graphics().setDepth(-24);
+    const snowHaze = [
+      { x: 0.2, y: 0.22, w: 940, h: 430, color: 0xa8c4e8, alpha: 0.08 },
+      { x: 0.54, y: 0.55, w: 1320, h: 560, color: 0x90b1dc, alpha: 0.1 },
+      { x: 0.82, y: 0.8, w: 900, h: 420, color: 0xb9d1ef, alpha: 0.07 }
+    ];
+    snowHaze.forEach((band) => {
+      this.bgNebula.fillStyle(band.color, band.alpha);
+      this.bgNebula.fillEllipse(worldW * band.x, worldH * band.y, band.w, band.h);
+    });
+    this.bgEdgeLayer = this.add.graphics().setDepth(-22);
+    this.bgEdgeLayer.fillStyle(0x152640, 0.2);
+    this.bgEdgeLayer.fillRect(0, 0, worldW, worldH);
+
+    this.bgDecor = this.add.container(0, 0).setDepth(-23);
+    const centerX = worldW * 0.5;
+    const centerY = worldH * 0.5;
+    const pack = (ids) => ids
+      .map((n) => objectKey(n))
+      .filter((key) => this.textures.exists(key));
+    const objectsLarge = pack([9]);
+    const objectsTree = pack([1, 2, 3, 4, 5, 6, 7, 8, 11, 12]);
+    const objectsSmall = pack([10]);
+    const occupiedDecor = [];
+    const getDecorRadius = (key, scale) => {
+      const frame = this.textures.getFrame(key);
+      const srcW = Math.max(8, Number(frame?.width || frame?.cutWidth || 32));
+      const srcH = Math.max(8, Number(frame?.height || frame?.cutHeight || 32));
+      const scaledW = srcW * scale;
+      const scaledH = srcH * scale;
+      const isTall = srcH > srcW * 1.3;
+      const baseR = isTall
+        ? scaledW * 0.38
+        : Math.min(scaledW, scaledH) * 0.46;
+      return Phaser.Math.Clamp(baseR, 14, 160);
+    };
+    const canPlaceDecor = (x, y, radius, gap) => {
+      for (let i = 0; i < occupiedDecor.length; i += 1) {
+        const o = occupiedDecor[i];
+        const minDist = radius + o.radius + gap;
+        if (Phaser.Math.Distance.Between(x, y, o.x, o.y) < minDist) return false;
+      }
+      return true;
+    };
+
+    const spawnDecor = (keys, count, opts = {}) => {
+      if (!Array.isArray(keys) || keys.length <= 0 || count <= 0) return;
+      const scaleMin = Number.isFinite(opts.scaleMin) ? opts.scaleMin : 1.0;
+      const scaleMax = Number.isFinite(opts.scaleMax) ? opts.scaleMax : 1.6;
+      const alphaMin = Number.isFinite(opts.alphaMin) ? opts.alphaMin : 0.58;
+      const alphaMax = Number.isFinite(opts.alphaMax) ? opts.alphaMax : 0.9;
+      const safeRadius = Number.isFinite(opts.safeRadius) ? opts.safeRadius : 300;
+      const separationGap = Number.isFinite(opts.gap) ? opts.gap : 18;
+      const maxTries = Math.max(count * 30, 120);
+      let placed = 0;
+      let tries = 0;
+      while (placed < count && tries < maxTries) {
+        tries += 1;
+        const key = Phaser.Utils.Array.GetRandom(keys);
+        const scale = Phaser.Math.FloatBetween(scaleMin, scaleMax);
+        const radius = getDecorRadius(key, scale);
+        const margin = Math.max(66, radius + 20);
+        const x = Phaser.Math.Between(margin, Math.max(margin + 1, worldW - margin));
+        const y = Phaser.Math.Between(margin, Math.max(margin + 1, worldH - margin));
+        if (Phaser.Math.Distance.Between(x, y, centerX, centerY) < safeRadius + radius) continue;
+        if (!canPlaceDecor(x, y, radius, separationGap)) continue;
+        const sprite = this.add.image(x, y, key);
+        sprite.setOrigin(0.5, Number.isFinite(opts.originY) ? opts.originY : 0.9);
+        sprite.setScale(scale);
+        sprite.setAlpha(Phaser.Math.FloatBetween(alphaMin, alphaMax));
+        sprite.setRotation(Phaser.Math.FloatBetween(-0.05, 0.05));
+        if (opts.flip !== false && Math.random() < 0.5) sprite.setFlipX(true);
+        this.bgDecor.add(sprite);
+        occupiedDecor.push({ x, y, radius });
+        placed += 1;
+      }
+    };
+
+    const densityMul = Phaser.Math.Clamp((worldW * worldH) / (4800 * 3000), 0.72, 1.3);
+    spawnDecor(objectsLarge, Math.round(6 * densityMul), {
+      scaleMin: 0.95,
+      scaleMax: 1.42,
+      alphaMin: 0.5,
+      alphaMax: 0.82,
+      safeRadius: 520,
+      gap: 52,
+      originY: 0.9
+    });
+    spawnDecor(objectsTree, Math.round(42 * densityMul), {
+      scaleMin: 2.2,
+      scaleMax: 3.4,
+      alphaMin: 0.54,
+      alphaMax: 0.84,
+      safeRadius: 380,
+      gap: 26,
+      originY: 0.92
+    });
+    spawnDecor(objectsSmall, Math.round(36 * densityMul), {
+      scaleMin: 1.8,
+      scaleMax: 2.8,
+      alphaMin: 0.56,
+      alphaMax: 0.86,
+      safeRadius: 340,
+      gap: 20,
+      originY: 0.88
+    });
+  }
+
   createWorldBackdrop(worldW, worldH) {
+    if (this.worldBiome === WORLD_BIOME_SNOW) {
+      this.createSnowBackdrop(worldW, worldH);
+      return;
+    }
     if (this.worldBiome === WORLD_BIOME_FOREST) {
       this.createForestBackdrop(worldW, worldH);
       return;
