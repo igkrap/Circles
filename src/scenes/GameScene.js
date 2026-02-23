@@ -5914,6 +5914,7 @@ export default class GameScene extends Phaser.Scene {
     const amount = Math.max(1, Math.floor(gold.amount * this.goldGainMul * this.relicGoldGainMul));
     this.runGold += amount;
     SaveSystem.addGold(amount);
+    this.playActionSfx('coin');
 
     new FloatingText(this, gold.x, gold.y - 8, `+${amount}`, { fontSize: 14, color: '#ffd700' });
     this.emitBurst(gold.x, gold.y, { count: 10, tint: 0xffd700, speedMin: 40, speedMax: 130, scaleStart: 0.8, lifespan: 180 });

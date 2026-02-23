@@ -29,6 +29,7 @@ export default class PreloadScene extends Phaser.Scene {
     this.load.audio('sfx_clash', 'assets/SFX_CLASH.wav');
     this.load.audio('sfx_battle', 'assets/SFX_BATTLE.mp3');
     this.load.audio('sfx_thunder', 'assets/SFX_THUNDER.wav');
+    this.load.audio('sfx_coin', 'assets/SFX_COIN.wav');
     for (let i = 1; i <= 17; i += 1) {
       this.load.image(`map_desert_tile_${i}`, `assets/maps/desert/Tile_${i}.png`);
     }
