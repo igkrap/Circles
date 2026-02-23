@@ -2562,7 +2562,8 @@ export default class GameScene extends Phaser.Scene {
     this.ui.statusLine = this.add.rectangle(0, 0, 0, 10, 0x0c1628, 0.98).setOrigin(0, 0).setScrollFactor(0);
     this.ui.statusLine.setStrokeStyle(1, 0x294d74, 1);
     this.ui.statusLineFill = this.add.rectangle(0, 0, 0, 8, HUD_COLOR_HP_SAFE, 0.98).setOrigin(0, 0).setScrollFactor(0);
-    this.ui.hp = this.add.text(0, 0, '', { fontFamily: fontBody, fontSize: '15px', color: HUD_COLOR_TEXT_MAIN }).setOrigin(0, 0).setScrollFactor(0);
+    this.ui.level = this.add.text(0, 0, '', { fontFamily: fontBody, fontSize: '15px', color: HUD_COLOR_TEXT_MAIN }).setOrigin(0, 0).setScrollFactor(0);
+    this.ui.hp = this.add.text(0, 0, '', { fontFamily: fontBody, fontSize: '15px', color: HUD_COLOR_TEXT_MAIN }).setOrigin(0.5, 0.5).setScrollFactor(0);
     this.ui.shield = this.add.text(0, 0, '', { fontFamily: fontBody, fontSize: '13px', color: '#8fcfff' }).setOrigin(0, 0).setScrollFactor(0);
     this.ui.synergy = this.add.text(0, 0, '', { fontFamily: fontBody, fontSize: '11px', color: '#79caef' }).setOrigin(0, 0).setScrollFactor(0);
     this.ui.shieldCells = [];
@@ -2670,6 +2671,7 @@ export default class GameScene extends Phaser.Scene {
       this.ui.time,
       this.ui.ping,
       this.ui.bossHpLabel,
+      this.ui.level,
       this.ui.hp,
       this.ui.shield,
       this.ui.synergy,
@@ -2709,6 +2711,7 @@ export default class GameScene extends Phaser.Scene {
       this.ui.statusAccent,
       this.ui.statusLine,
       this.ui.statusLineFill,
+      this.ui.level,
       this.ui.hp,
       this.ui.shield,
       this.ui.synergy,
@@ -2757,7 +2760,8 @@ export default class GameScene extends Phaser.Scene {
     this.ui.time.setFontSize(Math.max(13, Math.round(17 * hudScale)));
     this.ui.ping.setFontSize(Math.max(9, Math.round(10 * hudScale)));
     this.ui.bossHpLabel.setFontSize(Math.max(10, Math.round(13 * hudScale)));
-    this.ui.hp.setFontSize(Math.max(11, Math.round(15 * hudScale)));
+    this.ui.level.setFontSize(Math.max(11, Math.round(15 * hudScale)));
+    this.ui.hp.setFontSize(Math.max(9, Math.round(11 * hudScale)));
     this.ui.shield.setFontSize(Math.max(10, Math.round(13 * hudScale)));
     this.ui.synergy.setFontSize(Math.max(9, Math.round(11 * hudScale)));
     if (this.ui.reviveLabel && this.ui.reviveHint) {
@@ -2822,9 +2826,14 @@ export default class GameScene extends Phaser.Scene {
     const statusY = h - xpH - Math.round(8 * hudScale) - statusH;
     this.ui.statusBg.setPosition(statusX, statusY).setSize(statusW, statusH);
     this.ui.statusAccent.setPosition(statusX + 1, statusY + 1).setSize(Math.max(3, Math.round(4 * hudScale)), statusH - 2);
-    this.ui.statusLine.setPosition(statusX + Math.round(14 * hudScale), statusY + Math.round(36 * hudScale)).setSize(statusW - Math.round(28 * hudScale), Math.round(10 * hudScale));
-    this.ui.statusLineFill.setPosition(statusX + Math.round(15 * hudScale), statusY + Math.round(37 * hudScale)).setSize(Math.max(0, statusW - Math.round(30 * hudScale)), Math.round(8 * hudScale));
-    this.ui.hp.setPosition(statusX + Math.round(14 * hudScale), statusY + Math.round(8 * hudScale));
+    const hpBarX = statusX + Math.round(14 * hudScale);
+    const hpBarY = statusY + Math.round(32 * hudScale);
+    const hpBarW = statusW - Math.round(28 * hudScale);
+    const hpBarH = Math.round(10 * hudScale);
+    this.ui.statusLine.setPosition(hpBarX, hpBarY).setSize(hpBarW, hpBarH);
+    this.ui.statusLineFill.setPosition(hpBarX + 1, hpBarY + 1).setSize(Math.max(0, hpBarW - 2), Math.max(2, hpBarH - 2));
+    this.ui.level.setPosition(statusX + Math.round(14 * hudScale), statusY + Math.round(8 * hudScale));
+    this.ui.hp.setPosition(hpBarX + hpBarW * 0.5, hpBarY + hpBarH * 0.5);
     this.ui.shield.setPosition(statusX + Math.round(14 * hudScale), statusY + Math.round(23 * hudScale));
     this.ui.synergy.setPosition(statusX + Math.round(14 * hudScale), statusY + Math.round(54 * hudScale));
     this.ui.synergy.setWordWrapWidth(Math.max(Math.round(60 * hudScale), statusW - Math.round(116 * hudScale)), true);
@@ -3408,8 +3417,10 @@ export default class GameScene extends Phaser.Scene {
     const mm = String(Math.floor(tSec / 60)).padStart(2, '0');
     const ss = String(tSec % 60).padStart(2, '0');
 
+    this.ui.level.setColor(HUD_COLOR_TEXT_MAIN);
+    this.ui.level.setText(`Lv.${this.progression.level}`);
     this.ui.hp.setColor(hpRatio < 0.35 ? HUD_COLOR_WARN : HUD_COLOR_TEXT_MAIN);
-    this.ui.hp.setText(`Lv.${this.progression.level}  HP ${hpNow}/${this.playerMaxHp}`);
+    this.ui.hp.setText(`${hpNow}/${this.playerMaxHp}`);
     this.ui.shield.setVisible(false);
     this.ui.shield.setText('');
     const shieldMaxClamped = Math.max(0, Math.floor(Number(shieldMax || 0)));
