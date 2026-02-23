@@ -15,6 +15,8 @@ export default class PreloadScene extends Phaser.Scene {
     this.load.audio('bgm_main2', 'assets/BGM_MAIN2.mp3');
     this.load.audio('bgm_desert_01', 'assets/BGM_DESERT_01.wav');
     this.load.audio('bgm_desert_02', 'assets/BGM_DESERT_02.wav');
+    this.load.audio('bgm_forest_01', 'assets/BGM_FOREST_01.wav');
+    this.load.audio('bgm_forest_02', 'assets/BGM_FOREST_02.wav');
     this.load.audio('sfx_enemy_hit', 'assets/SFX_ENEMYHIT.mp3');
     this.load.audio('sfx_enemy_death', 'assets/SFX_ENEMYDEATH.wav');
     this.load.audio('sfx_fire', 'assets/SFX_FIRE.wav');
@@ -30,6 +32,13 @@ export default class PreloadScene extends Phaser.Scene {
     }
     for (let i = 1; i <= 20; i += 1) {
       this.load.image(`map_desert_object_${i}`, `assets/maps/desert/Object_${i}.png`);
+    }
+    for (let i = 1; i <= 4; i += 1) {
+      const tileNo = String(i).padStart(2, '0');
+      this.load.image(`map_forest_tile_${i}`, `assets/maps/forest/Tile_${tileNo}.png`);
+    }
+    for (let i = 1; i <= 48; i += 1) {
+      this.load.image(`map_forest_object_${i}`, `assets/maps/forest/Object (${i}).png`);
     }
     this.load.image('img_enemy_boss_gif', 'assets/img_enemy_boss.gif');
     this.load.spritesheet('spr_enemy_boss', 'assets/img_enemy_boss_sheet.png', { frameWidth: 100, frameHeight: 100 });

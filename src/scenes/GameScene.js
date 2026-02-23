@@ -84,6 +84,7 @@ const FIELD_COIN_SCALE = 1.2;
 const FIELD_COIN_PICKUP_RADIUS = 9 * FIELD_COIN_SCALE;
 const WORLD_BIOME_DEFAULT = 'default';
 const WORLD_BIOME_DESERT = 'desert';
+const WORLD_BIOME_FOREST = 'forest';
 
 function getEnemyBodyRadiusByType(type) {
   const baseRadius = (type === EnemyType.BOSS) ? 28
@@ -115,6 +116,7 @@ function getMmrTierLabel(mmr) {
 function sanitizeWorldBiome(rawBiome) {
   const biome = String(rawBiome || '').trim().toLowerCase();
   if (biome === WORLD_BIOME_DESERT) return biome;
+  if (biome === WORLD_BIOME_FOREST) return biome;
   return WORLD_BIOME_DEFAULT;
 }
 
@@ -241,7 +243,11 @@ export default class GameScene extends Phaser.Scene {
       ? explicitBiome
       : (hasDebugBiome ? debugBiome : WORLD_BIOME_DEFAULT);
     if (this.runMode === 'survival' && !hasExplicitBiome && !hasDebugBiome) {
-      this.worldBiome = Math.random() < 0.5 ? WORLD_BIOME_DEFAULT : WORLD_BIOME_DESERT;
+      this.worldBiome = Phaser.Utils.Array.GetRandom([
+        WORLD_BIOME_DEFAULT,
+        WORLD_BIOME_DESERT,
+        WORLD_BIOME_FOREST
+      ]);
     } else {
       this.worldBiome = requestedBiome;
     }
@@ -314,9 +320,12 @@ export default class GameScene extends Phaser.Scene {
     this.sound.stopAll();
     const defaultGameBgmKeys = ['bgm_main1', 'bgm_main2', 'bgm_main'];
     const desertGameBgmKeys = ['bgm_desert_01', 'bgm_desert_02'];
-    const preferredKeys = this.worldBiome === WORLD_BIOME_DESERT ? desertGameBgmKeys : defaultGameBgmKeys;
+    const forestGameBgmKeys = ['bgm_forest_01', 'bgm_forest_02'];
+    const preferredKeys = this.worldBiome === WORLD_BIOME_DESERT
+      ? desertGameBgmKeys
+      : (this.worldBiome === WORLD_BIOME_FOREST ? forestGameBgmKeys : defaultGameBgmKeys);
     let gameBgmKeys = preferredKeys.filter((k) => this.cache.audio.exists(k));
-    if (gameBgmKeys.length <= 0 && this.worldBiome === WORLD_BIOME_DESERT) {
+    if (gameBgmKeys.length <= 0 && this.worldBiome !== WORLD_BIOME_DEFAULT) {
       gameBgmKeys = defaultGameBgmKeys.filter((k) => this.cache.audio.exists(k));
     }
     const pickedBgmKey = gameBgmKeys.length > 0
@@ -744,7 +753,132 @@ export default class GameScene extends Phaser.Scene {
     });
   }
 
+  createForestBackdrop(worldW, worldH) {
+    const tileKey = (n) => `map_forest_tile_${n}`;
+    const objectKey = (n) => `map_forest_object_${n}`;
+    const hasTile = (n) => this.textures.exists(tileKey(n));
+    const baseTile = hasTile(1)
+      ? tileKey(1)
+      : ([2, 3, 4].map((n) => tileKey(n)).find((k) => this.textures.exists(k)) || null);
+    if (!baseTile) {
+      this.createDefaultBackdrop(worldW, worldH);
+      return;
+    }
+
+    this.cameras.main.setBackgroundColor(0x112718);
+    this.bgLayer = this.add.tileSprite(worldW * 0.5, worldH * 0.5, worldW, worldH, baseTile);
+    this.bgLayer.setDepth(-26);
+    this.bgLayer.setAlpha(1);
+
+    this.bgNebula = this.add.graphics().setDepth(-24);
+    const fogBands = [
+      { x: 0.18, y: 0.23, w: 980, h: 460, color: 0x86c56b, alpha: 0.1 },
+      { x: 0.52, y: 0.56, w: 1360, h: 620, color: 0x4f8f49, alpha: 0.11 },
+      { x: 0.82, y: 0.74, w: 940, h: 440, color: 0x2f6e35, alpha: 0.09 }
+    ];
+    fogBands.forEach((band) => {
+      this.bgNebula.fillStyle(band.color, band.alpha);
+      this.bgNebula.fillEllipse(worldW * band.x, worldH * band.y, band.w, band.h);
+    });
+
+    this.bgDecor = this.add.container(0, 0).setDepth(-23);
+    const centerX = worldW * 0.5;
+    const centerY = worldH * 0.5;
+
+    const pack = (ids) => ids
+      .map((n) => objectKey(n))
+      .filter((key) => this.textures.exists(key));
+    const objectsLarge = pack([1, 2, 3, 4, 19, 20, 21, 22, 23, 24, 44, 45, 46, 47, 48]);
+    const objectsMedium = pack([5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 25, 26, 27, 28, 29, 30, 31, 32]);
+    const objectsSmall = pack([33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43]);
+    const occupiedDecor = [];
+    const getDecorRadius = (key, scale) => {
+      const frame = this.textures.getFrame(key);
+      const srcW = Math.max(8, Number(frame?.width || frame?.cutWidth || 256));
+      const srcH = Math.max(8, Number(frame?.height || frame?.cutHeight || 256));
+      const scaledW = srcW * scale;
+      const scaledH = srcH * scale;
+      const isTall = srcH > srcW * 1.2;
+      const baseR = isTall
+        ? scaledW * 0.34
+        : Math.min(scaledW, scaledH) * 0.42;
+      return Phaser.Math.Clamp(baseR, 20, 128);
+    };
+    const canPlaceDecor = (x, y, radius, gap) => {
+      for (let i = 0; i < occupiedDecor.length; i += 1) {
+        const o = occupiedDecor[i];
+        const minDist = radius + o.radius + gap;
+        if (Phaser.Math.Distance.Between(x, y, o.x, o.y) < minDist) return false;
+      }
+      return true;
+    };
+
+    const spawnDecor = (keys, count, opts = {}) => {
+      if (!Array.isArray(keys) || keys.length <= 0 || count <= 0) return;
+      const scaleMin = Number.isFinite(opts.scaleMin) ? opts.scaleMin : 0.8;
+      const scaleMax = Number.isFinite(opts.scaleMax) ? opts.scaleMax : 1.2;
+      const alphaMin = Number.isFinite(opts.alphaMin) ? opts.alphaMin : 0.56;
+      const alphaMax = Number.isFinite(opts.alphaMax) ? opts.alphaMax : 0.88;
+      const safeRadius = Number.isFinite(opts.safeRadius) ? opts.safeRadius : 280;
+      const separationGap = Number.isFinite(opts.gap) ? opts.gap : 18;
+      const maxTries = Math.max(count * 28, 120);
+      let placed = 0;
+      let tries = 0;
+      while (placed < count && tries < maxTries) {
+        tries += 1;
+        const key = Phaser.Utils.Array.GetRandom(keys);
+        const scale = Phaser.Math.FloatBetween(scaleMin, scaleMax);
+        const radius = getDecorRadius(key, scale);
+        const margin = Math.max(86, radius + 24);
+        const x = Phaser.Math.Between(margin, Math.max(margin + 1, worldW - margin));
+        const y = Phaser.Math.Between(margin, Math.max(margin + 1, worldH - margin));
+        if (Phaser.Math.Distance.Between(x, y, centerX, centerY) < safeRadius + radius) continue;
+        if (!canPlaceDecor(x, y, radius, separationGap)) continue;
+        const sprite = this.add.image(x, y, key);
+        sprite.setOrigin(0.5, Number.isFinite(opts.originY) ? opts.originY : 0.88);
+        sprite.setScale(scale);
+        sprite.setAlpha(Phaser.Math.FloatBetween(alphaMin, alphaMax));
+        sprite.setRotation(Phaser.Math.FloatBetween(-0.05, 0.05));
+        if (opts.flip !== false && Math.random() < 0.5) sprite.setFlipX(true);
+        this.bgDecor.add(sprite);
+        occupiedDecor.push({ x, y, radius });
+        placed += 1;
+      }
+    };
+
+    const densityMul = Phaser.Math.Clamp((worldW * worldH) / (4800 * 3000), 0.62, 1.12);
+    spawnDecor(objectsLarge, Math.round(8 * densityMul), {
+      scaleMin: 0.78,
+      scaleMax: 1.16,
+      alphaMin: 0.56,
+      alphaMax: 0.86,
+      safeRadius: 540,
+      gap: 42,
+      originY: 0.92
+    });
+    spawnDecor(objectsMedium, Math.round(12 * densityMul), {
+      scaleMin: 0.74,
+      scaleMax: 1.2,
+      alphaMin: 0.58,
+      alphaMax: 0.9,
+      safeRadius: 460,
+      gap: 34
+    });
+    spawnDecor(objectsSmall, Math.round(14 * densityMul), {
+      scaleMin: 0.72,
+      scaleMax: 1.14,
+      alphaMin: 0.6,
+      alphaMax: 0.94,
+      safeRadius: 380,
+      gap: 28
+    });
+  }
+
   createWorldBackdrop(worldW, worldH) {
+    if (this.worldBiome === WORLD_BIOME_FOREST) {
+      this.createForestBackdrop(worldW, worldH);
+      return;
+    }
     if (this.worldBiome === WORLD_BIOME_DESERT) {
       this.createDesertBackdrop(worldW, worldH);
       return;
