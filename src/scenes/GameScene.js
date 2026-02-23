@@ -595,70 +595,41 @@ export default class GameScene extends Phaser.Scene {
     const tileKey = (n) => `map_desert_tile_${n}`;
     const objectKey = (n) => `map_desert_object_${n}`;
     const hasTile = (n) => this.textures.exists(tileKey(n));
-    const hasObject = (n) => this.textures.exists(objectKey(n));
     if (!hasTile(5)) {
       this.createDefaultBackdrop(worldW, worldH);
       return;
     }
 
-    this.cameras.main.setBackgroundColor(0x9a6b2f);
+    this.cameras.main.setBackgroundColor(0x7f5423);
     this.bgLayer = this.add.tileSprite(worldW * 0.5, worldH * 0.5, worldW, worldH, tileKey(5));
     this.bgLayer.setDepth(-26);
-    this.bgLayer.setAlpha(1);
+    this.bgLayer.setAlpha(0.9);
+    this.bgLayer.setTint(0xd8b36a);
 
     if (this.textures.exists('tex_bg_dust_desert')) {
       this.bgDustLayer = this.add.tileSprite(worldW * 0.5, worldH * 0.5, worldW, worldH, 'tex_bg_dust_desert');
       this.bgDustLayer.setDepth(-25);
-      this.bgDustLayer.setAlpha(0.2);
+      this.bgDustLayer.setAlpha(0.12);
       this.bgDustLayer.setBlendMode(Phaser.BlendModes.ADD);
     }
 
     this.bgNebula = this.add.graphics().setDepth(-24);
     const duneBands = [
-      { x: 0.2, y: 0.2, w: 980, h: 430, color: 0xf2ce81, alpha: 0.08 },
-      { x: 0.53, y: 0.56, w: 1400, h: 540, color: 0xd9a35e, alpha: 0.09 },
-      { x: 0.83, y: 0.78, w: 960, h: 420, color: 0xbd7f3f, alpha: 0.07 }
+      { x: 0.2, y: 0.2, w: 980, h: 430, color: 0xc39258, alpha: 0.06 },
+      { x: 0.53, y: 0.56, w: 1400, h: 540, color: 0xa96f39, alpha: 0.07 },
+      { x: 0.83, y: 0.78, w: 960, h: 420, color: 0x8d5526, alpha: 0.06 }
     ];
     duneBands.forEach((band) => {
       this.bgNebula.fillStyle(band.color, band.alpha);
       this.bgNebula.fillEllipse(worldW * band.x, worldH * band.y, band.w, band.h);
     });
+    this.bgEdgeLayer = this.add.graphics().setDepth(-22);
+    this.bgEdgeLayer.fillStyle(0x2a1608, 0.14);
+    this.bgEdgeLayer.fillRect(0, 0, worldW, worldH);
 
     this.bgDecor = this.add.container(0, 0).setDepth(-23);
-    const tileSize = 256;
-    const cols = Math.ceil(worldW / tileSize);
-    const rows = Math.ceil(worldH / tileSize);
     const centerX = worldW * 0.5;
     const centerY = worldH * 0.5;
-    const useTile = (preferred, fallback = 5) => (hasTile(preferred) ? tileKey(preferred) : tileKey(fallback));
-    const placeTile = (col, row, key, alpha = 1) => {
-      if (!key || !this.textures.exists(key)) return null;
-      const tile = this.add.image(col * tileSize, row * tileSize, key).setOrigin(0, 0).setAlpha(alpha);
-      this.bgDecor.add(tile);
-      return tile;
-    };
-
-    const topLeft = useTile(1);
-    const top = useTile(2);
-    const topRight = useTile(3);
-    const right = useTile(4);
-    const left = useTile(6);
-    const bottomRight = useTile(7);
-    const bottom = useTile(8);
-    const bottomLeft = useTile(9);
-
-    placeTile(0, 0, topLeft);
-    placeTile(cols - 1, 0, topRight);
-    placeTile(0, rows - 1, bottomLeft);
-    placeTile(cols - 1, rows - 1, bottomRight);
-    for (let col = 1; col < cols - 1; col += 1) {
-      placeTile(col, 0, top);
-      placeTile(col, rows - 1, bottom);
-    }
-    for (let row = 1; row < rows - 1; row += 1) {
-      placeTile(0, row, left);
-      placeTile(cols - 1, row, right);
-    }
 
     const pack = (ids) => ids
       .map((n) => objectKey(n))
@@ -723,39 +694,39 @@ export default class GameScene extends Phaser.Scene {
       }
     };
 
-    const densityMul = Phaser.Math.Clamp((worldW * worldH) / (4800 * 3000), 0.7, 1.35);
-    spawnDecor(objectsRock, Math.round(56 * densityMul), {
+    const densityMul = Phaser.Math.Clamp((worldW * worldH) / (4800 * 3000), 0.52, 0.92);
+    spawnDecor(objectsRock, Math.round(20 * densityMul), {
       scaleMin: 0.74,
       scaleMax: 1.28,
-      alphaMin: 0.56,
-      alphaMax: 0.9,
-      safeRadius: 340,
-      gap: 18
+      alphaMin: 0.5,
+      alphaMax: 0.84,
+      safeRadius: 520,
+      gap: 40
     });
-    spawnDecor(objectsFlora, Math.round(44 * densityMul), {
+    spawnDecor(objectsFlora, Math.round(14 * densityMul), {
       scaleMin: 0.76,
       scaleMax: 1.32,
-      alphaMin: 0.58,
-      alphaMax: 0.9,
-      safeRadius: 300,
-      gap: 16
+      alphaMin: 0.52,
+      alphaMax: 0.84,
+      safeRadius: 480,
+      gap: 34
     });
-    spawnDecor(objectsCactus, Math.round(28 * densityMul), {
+    spawnDecor(objectsCactus, Math.round(10 * densityMul), {
       scaleMin: 0.74,
       scaleMax: 1.12,
-      alphaMin: 0.58,
-      alphaMax: 0.84,
-      safeRadius: 360,
-      gap: 20
+      alphaMin: 0.54,
+      alphaMax: 0.78,
+      safeRadius: 540,
+      gap: 42
     });
-    spawnDecor(objectsLarge, Math.round(14 * densityMul), {
+    spawnDecor(objectsLarge, Math.round(6 * densityMul), {
       scaleMin: 0.56,
       scaleMax: 0.96,
-      alphaMin: 0.45,
-      alphaMax: 0.72,
-      safeRadius: 440,
+      alphaMin: 0.4,
+      alphaMax: 0.66,
+      safeRadius: 620,
       originY: 0.96,
-      gap: 32
+      gap: 52
     });
   }
 
@@ -771,21 +742,25 @@ export default class GameScene extends Phaser.Scene {
       return;
     }
 
-    this.cameras.main.setBackgroundColor(0x112718);
+    this.cameras.main.setBackgroundColor(0x0d1f13);
     this.bgLayer = this.add.tileSprite(worldW * 0.5, worldH * 0.5, worldW, worldH, baseTile);
     this.bgLayer.setDepth(-26);
-    this.bgLayer.setAlpha(1);
+    this.bgLayer.setAlpha(0.92);
+    this.bgLayer.setTint(0xb9d2b7);
 
     this.bgNebula = this.add.graphics().setDepth(-24);
     const fogBands = [
-      { x: 0.18, y: 0.23, w: 980, h: 460, color: 0x86c56b, alpha: 0.1 },
-      { x: 0.52, y: 0.56, w: 1360, h: 620, color: 0x4f8f49, alpha: 0.11 },
-      { x: 0.82, y: 0.74, w: 940, h: 440, color: 0x2f6e35, alpha: 0.09 }
+      { x: 0.18, y: 0.23, w: 980, h: 460, color: 0x5b9760, alpha: 0.07 },
+      { x: 0.52, y: 0.56, w: 1360, h: 620, color: 0x3a7240, alpha: 0.08 },
+      { x: 0.82, y: 0.74, w: 940, h: 440, color: 0x244f2b, alpha: 0.07 }
     ];
     fogBands.forEach((band) => {
       this.bgNebula.fillStyle(band.color, band.alpha);
       this.bgNebula.fillEllipse(worldW * band.x, worldH * band.y, band.w, band.h);
     });
+    this.bgEdgeLayer = this.add.graphics().setDepth(-22);
+    this.bgEdgeLayer.fillStyle(0x0e1c10, 0.12);
+    this.bgEdgeLayer.fillRect(0, 0, worldW, worldH);
 
     this.bgDecor = this.add.container(0, 0).setDepth(-23);
     const centerX = worldW * 0.5;
@@ -856,8 +831,8 @@ export default class GameScene extends Phaser.Scene {
     spawnDecor(objectsLarge, Math.round(8 * densityMul), {
       scaleMin: 0.78,
       scaleMax: 1.16,
-      alphaMin: 0.56,
-      alphaMax: 0.86,
+      alphaMin: 0.5,
+      alphaMax: 0.8,
       safeRadius: 540,
       gap: 42,
       originY: 0.92
@@ -865,16 +840,16 @@ export default class GameScene extends Phaser.Scene {
     spawnDecor(objectsMedium, Math.round(12 * densityMul), {
       scaleMin: 0.74,
       scaleMax: 1.2,
-      alphaMin: 0.58,
-      alphaMax: 0.9,
+      alphaMin: 0.52,
+      alphaMax: 0.84,
       safeRadius: 460,
       gap: 34
     });
     spawnDecor(objectsSmall, Math.round(14 * densityMul), {
       scaleMin: 0.72,
       scaleMax: 1.14,
-      alphaMin: 0.6,
-      alphaMax: 0.94,
+      alphaMin: 0.54,
+      alphaMax: 0.86,
       safeRadius: 380,
       gap: 28
     });
